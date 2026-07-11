@@ -66,6 +66,9 @@
                 <h1 id="page-title">Панель мониторинга SLA/SLI</h1>
                 
                 <div class="user-profile-header">
+                    <button id="theme-toggle-btn" class="theme-toggle" title="Переключить тему оформления" style="background: none; border: none; color: var(--text-secondary); font-size: 16px; cursor: pointer; padding: 8px; border-radius: 50%; display: flex; align-items: center; justify-content: center; transition: all var(--transition-speed); margin-right: 10px;">
+                        <i class="fa-solid fa-moon"></i>
+                    </button>
                     <span id="user-display-name"><i class="fa-solid fa-user-shield"></i> {{ session.username }} ({% if session.role == 'admin' %}Админ{% else %}Пользователь{% endif %})</span>
                     <a href="/logout" class="logout-link" title="Выйти из системы"><i class="fa-solid fa-right-from-bracket"></i> Выйти</a>
                 </div>

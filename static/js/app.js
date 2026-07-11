@@ -11,6 +11,7 @@ let sortDirection = 'asc';
 
 // Инициализация при загрузке страницы
 document.addEventListener('DOMContentLoaded', () => {
+    initTheme();
     initTabs();
     initPeriodPicker();
     initSortHeaders();
@@ -293,6 +294,10 @@ function destroyCharts() {
 function renderCharts(reportData, vpnCount, serverCount) {
     destroyCharts();
     
+    const isLight = document.documentElement.getAttribute('data-theme') === 'light';
+    const gridColor = isLight ? 'rgba(0, 0, 0, 0.05)' : 'rgba(255, 255, 255, 0.05)';
+    const textColor = isLight ? '#475569' : '#9ca3af';
+    
     // 1. График сравнения SLA клиентов
     const clients = Object.keys(reportData);
     const slas = clients.map(c => reportData[c].sla_percent);
@@ -321,12 +326,12 @@ function renderCharts(reportData, vpnCount, serverCount) {
                 y: {
                     min: Math.max(0, Math.min(...slas) - 0.5), // Автомасштаб
                     max: 100,
-                    grid: { color: 'rgba(255, 255, 255, 0.05)' },
-                    ticks: { color: '#9ca3af' }
+                    grid: { color: gridColor },
+                    ticks: { color: textColor }
                 },
                 x: {
                     grid: { display: false },
-                    ticks: { color: '#9ca3af' }
+                    ticks: { color: textColor }
                 }
             }
         }
@@ -351,7 +356,7 @@ function renderCharts(reportData, vpnCount, serverCount) {
             plugins: {
                 legend: {
                     position: 'bottom',
-                    labels: { color: '#9ca3af', boxWidth: 12 }
+                    labels: { color: textColor, boxWidth: 12 }
                 }
             }
         }
@@ -1124,6 +1129,37 @@ function initEventHandlers() {
                 showToast('Ошибка соединения', 'error');
             }
         });
+    }
+}
+
+function initTheme() {
+    const themeToggleBtn = document.getElementById('theme-toggle-btn');
+    if (themeToggleBtn) {
+        const currentTheme = localStorage.getItem('theme') || 'dark';
+        document.documentElement.setAttribute('data-theme', currentTheme);
+        updateThemeIcon(themeToggleBtn, currentTheme);
+
+        themeToggleBtn.addEventListener('click', () => {
+            const currentTheme = document.documentElement.getAttribute('data-theme') || 'dark';
+            const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+            document.documentElement.setAttribute('data-theme', newTheme);
+            localStorage.setItem('theme', newTheme);
+            updateThemeIcon(themeToggleBtn, newTheme);
+            
+            // Перерисовываем графики
+            if (currentReportData && Object.keys(currentReportData).length > 0) {
+                loadDashboardData();
+            }
+        });
+    }
+}
+
+function updateThemeIcon(btn, theme) {
+    const icon = btn.querySelector('i');
+    if (theme === 'light') {
+        icon.className = 'fa-solid fa-sun';
+    } else {
+        icon.className = 'fa-solid fa-moon';
     }
 }
 

@@ -1,8 +1,14 @@
 /* Переменные стилей */
 :root {
+    /* Темная тема (дефолт) */
     --bg-dark: #0b0f19;
     --bg-card: rgba(17, 24, 39, 0.7);
     --bg-sidebar: #0f172a;
+    --bg-picker: rgba(15, 23, 42, 0.8);
+    --bg-active: rgba(255, 255, 255, 0.08);
+    --bg-hover: rgba(255, 255, 255, 0.04);
+    --bg-button: rgba(255, 255, 255, 0.05);
+    
     --accent: #2563eb;
     --accent-gradient: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%);
     --accent-glow: rgba(59, 130, 246, 0.4);
@@ -21,6 +27,35 @@
     
     --font-main: 'Inter', sans-serif;
     --transition-speed: 0.3s;
+    --color-scheme: dark;
+}
+
+[data-theme="light"] {
+    /* Светлая тема */
+    --bg-dark: #f1f5f9;
+    --bg-card: rgba(255, 255, 255, 0.8);
+    --bg-sidebar: #ffffff;
+    --bg-picker: rgba(255, 255, 255, 0.9);
+    --bg-active: rgba(15, 23, 42, 0.08);
+    --bg-hover: rgba(15, 23, 42, 0.03);
+    --bg-button: rgba(15, 23, 42, 0.05);
+    
+    --accent: #1d4ed8;
+    --accent-gradient: linear-gradient(135deg, #2563eb 0%, #7c3aed 100%);
+    --accent-glow: rgba(37, 99, 235, 0.2);
+    
+    --text-primary: #0f172a;
+    --text-secondary: #475569;
+    --text-muted: #94a3b8;
+    
+    --border-color: rgba(15, 23, 42, 0.08);
+    --border-focus: #2563eb;
+    
+    --success: #059669;
+    --warning: #d97706;
+    --danger: #dc2626;
+    --info: #0891b2;
+    --color-scheme: light;
 }
 
 /* Общие стили */
@@ -124,7 +159,7 @@ body {
 
 .nav-btn:hover {
     color: var(--text-primary);
-    background-color: rgba(255, 255, 255, 0.04);
+    background-color: var(--bg-hover);
 }
 
 .nav-btn.active {
@@ -165,7 +200,7 @@ body {
 }
 
 .sync-btn {
-    background-color: rgba(255, 255, 255, 0.05);
+    background-color: var(--bg-button);
     border: 1px solid var(--border-color);
     color: var(--text-primary);
     padding: 10px;
@@ -182,7 +217,7 @@ body {
 }
 
 .sync-btn:hover {
-    background-color: rgba(255, 255, 255, 0.1);
+    background-color: var(--bg-hover);
     border-color: var(--text-secondary);
 }
 
@@ -210,7 +245,7 @@ body {
 /* Селектор периода */
 .period-picker {
     display: flex;
-    background-color: rgba(15, 23, 42, 0.8);
+    background-color: var(--bg-picker);
     border: 1px solid var(--border-color);
     border-radius: 12px;
     padding: 4px;
@@ -236,7 +271,7 @@ body {
 }
 
 .period-quick-btn.active {
-    background-color: rgba(255, 255, 255, 0.08);
+    background-color: var(--bg-active);
     color: white;
     box-shadow: 0 2px 6px rgba(0,0,0,0.2);
 }
@@ -251,14 +286,14 @@ body {
 }
 
 .date-input {
-    background-color: rgba(255, 255, 255, 0.04);
+    background-color: var(--bg-hover);
     border: 1px solid var(--border-color);
-    color: white;
+    color: var(--text-primary);
     padding: 6px 10px;
     border-radius: 6px;
     font-family: var(--font-main);
     font-size: 12px;
-    color-scheme: dark;
+    color-scheme: var(--color-scheme);
 }
 
 .date-input:focus {

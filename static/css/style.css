@@ -28,6 +28,10 @@
     --font-main: 'Inter', sans-serif;
     --transition-speed: 0.3s;
     --color-scheme: dark;
+    
+    --bg-accordion: rgba(0, 0, 0, 0.15);
+    --bg-incidents: rgba(0, 0, 0, 0.3);
+    --border-inner: rgba(255, 255, 255, 0.04);
 }
 
 [data-theme="light"] {
@@ -56,6 +60,10 @@
     --danger: #dc2626;
     --info: #0891b2;
     --color-scheme: light;
+    
+    --bg-accordion: rgba(15, 23, 42, 0.02);
+    --bg-incidents: rgba(15, 23, 42, 0.05);
+    --border-inner: rgba(15, 23, 42, 0.04);
 }
 
 /* Общие стили */
@@ -469,7 +477,7 @@ body {
 .table-header-row {
     display: flex;
     padding: 12px 20px;
-    background-color: rgba(255, 255, 255, 0.03);
+    background-color: var(--bg-hover);
     border-bottom: 1px solid var(--border-color);
     font-size: 11px;
     font-weight: 600;
@@ -529,7 +537,7 @@ body {
 }
 
 .accordion-trigger:hover {
-    background-color: rgba(255, 255, 255, 0.02);
+    background-color: var(--bg-hover);
 }
 
 .accordion-trigger .col-expand i, .server-row .col-expand i {
@@ -545,7 +553,7 @@ body {
     max-height: 0;
     overflow: hidden;
     transition: max-height 0.4s ease-out;
-    background-color: rgba(0, 0, 0, 0.15);
+    background-color: var(--bg-accordion);
 }
 
 .accordion-item.open > .accordion-content,
@@ -557,7 +565,7 @@ body {
 .server-row {
     display: flex;
     padding: 12px 20px 12px 40px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+    border-bottom: 1px solid var(--border-inner);
     font-size: 14px;
     color: var(--text-secondary);
     align-items: center;
@@ -566,7 +574,7 @@ body {
 }
 
 .server-row:hover {
-    background-color: rgba(255, 255, 255, 0.01);
+    background-color: var(--bg-hover);
 }
 
 .server-row .col-name {
@@ -587,8 +595,8 @@ body {
 /* Вложенные инциденты */
 .incidents-container {
     padding: 16px 20px 16px 60px;
-    background-color: rgba(0, 0, 0, 0.3);
-    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+    background-color: var(--bg-incidents);
+    border-bottom: 1px solid var(--border-inner);
 }
 
 .incidents-container h4 {
@@ -608,7 +616,7 @@ body {
 .incidents-table th, .incidents-table td {
     padding: 8px 12px;
     text-align: left;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    border-bottom: 1px solid var(--border-inner);
 }
 
 .incidents-table th {

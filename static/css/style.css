@@ -776,7 +776,7 @@ body {
 }
 
 .form-group select option {
-    background-color: #1e293b;
+    background-color: var(--bg-modal);
     color: var(--text-primary);
     padding: 12px;
     font-size: 14px;

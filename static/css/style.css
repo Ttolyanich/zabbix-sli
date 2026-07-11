@@ -32,6 +32,9 @@
     --bg-accordion: rgba(0, 0, 0, 0.15);
     --bg-incidents: rgba(0, 0, 0, 0.3);
     --border-inner: rgba(255, 255, 255, 0.04);
+    --bg-modal: #1e293b;
+    --bg-input: rgba(255, 255, 255, 0.04);
+    --text-input: #f3f4f6;
 }
 
 [data-theme="light"] {
@@ -64,6 +67,9 @@
     --bg-accordion: #f8fafc;
     --bg-incidents: #f1f5f9;
     --border-inner: #e2e8f0;
+    --bg-modal: #ffffff;
+    --bg-input: #ffffff;
+    --text-input: #0f172a;
 }
 
 /* Общие стили */
@@ -719,9 +725,9 @@ body {
 }
 
 .form-group input, .form-group select, .form-group textarea {
-    background-color: rgba(255, 255, 255, 0.04);
+    background-color: var(--bg-input);
     border: 1px solid var(--border-color);
-    color: white;
+    color: var(--text-input);
     padding: 10px 14px;
     border-radius: 8px;
     font-family: var(--font-main);
@@ -732,7 +738,7 @@ body {
 .form-group input:focus, .form-group select:focus, .form-group textarea:focus {
     border-color: var(--border-focus);
     outline: none;
-    background-color: rgba(255, 255, 255, 0.06);
+    background-color: var(--bg-input);
 }
 
 /* Кастомизация выпадающих списков (Select Dropdowns) */
@@ -1051,7 +1057,8 @@ body {
 }
 
 .modal-content {
-    background-color: #1e293b;
+    background-color: var(--bg-modal);
+    color: var(--text-primary);
     border: 1px solid var(--border-color);
     margin: 15% auto;
     padding: 24px;
@@ -1073,7 +1080,7 @@ body {
 }
 
 .close-modal:hover {
-    color: white;
+    color: var(--text-primary);
 }
 
 /* Тосты уведомлений */
@@ -1088,9 +1095,9 @@ body {
 }
 
 .toast {
-    background-color: #1e293b;
+    background-color: var(--bg-modal);
     border-left: 4px solid var(--accent);
-    color: white;
+    color: var(--text-primary);
     padding: 16px 20px;
     border-radius: 8px;
     box-shadow: 0 4px 12px rgba(0,0,0,0.3);

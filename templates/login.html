@@ -9,12 +9,41 @@
     <link rel="icon" type="image/svg+xml" href="/static/img/favicon.svg">
     <style>
         :root {
+            /* Темная тема (дефолт) */
             --bg-dark: #090d16;
             --accent: #3b82f6;
             --accent-glow: rgba(59, 130, 246, 0.45);
             --border-color: rgba(255, 255, 255, 0.08);
             --text-primary: #f3f4f6;
             --text-secondary: #9ca3af;
+            
+            --bg-container: rgba(13, 20, 35, 0.45);
+            --bg-input: rgba(255, 255, 255, 0.04);
+            --bg-input-focus: rgba(255, 255, 255, 0.06);
+            --box-shadow: rgba(0, 0, 0, 0.4);
+            --error-bg: rgba(239, 68, 68, 0.1);
+            --error-text: #f87171;
+            --error-border: rgba(239, 68, 68, 0.2);
+            --glow-opacity: 0.15;
+        }
+
+        [data-theme="light"] {
+            /* Светлая тема */
+            --bg-dark: #f1f5f9;
+            --accent: #1d4ed8;
+            --accent-glow: rgba(37, 99, 235, 0.2);
+            --border-color: rgba(15, 23, 42, 0.08);
+            --text-primary: #0f172a;
+            --text-secondary: #475569;
+            
+            --bg-container: rgba(255, 255, 255, 0.85);
+            --bg-input: #ffffff;
+            --bg-input-focus: #ffffff;
+            --box-shadow: rgba(15, 23, 42, 0.08);
+            --error-bg: #fee2e2;
+            --error-text: #dc2626;
+            --error-border: rgba(220, 38, 38, 0.2);
+            --glow-opacity: 0.08;
         }
 
         * {
@@ -38,7 +67,7 @@
 
         /* Glassmorphic Container */
         .login-container {
-            background: rgba(13, 20, 35, 0.45);
+            background: var(--bg-container);
             backdrop-filter: blur(20px);
             -webkit-backdrop-filter: blur(20px);
             border: 1px solid var(--border-color);
@@ -46,7 +75,7 @@
             padding: 40px;
             width: 100%;
             max-width: 420px;
-            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
+            box-shadow: 0 20px 40px var(--box-shadow);
             animation: fadeIn 0.8s ease-out;
         }
 
@@ -116,7 +145,7 @@
 
         .form-control {
             width: 100%;
-            background: rgba(255, 255, 255, 0.04);
+            background: var(--bg-input);
             border: 1px solid var(--border-color);
             border-radius: 12px;
             padding: 12px 14px 12px 42px;
@@ -128,14 +157,14 @@
 
         .form-control:focus {
             border-color: var(--accent);
-            background: rgba(255, 255, 255, 0.06);
-            box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.15);
+            background: var(--bg-input-focus);
+            box-shadow: 0 0 0 4px rgba(59, 130, 246, var(--glow-opacity));
         }
 
         .error-message {
-            background-color: rgba(239, 68, 68, 0.1);
-            border: 1px solid rgba(239, 68, 68, 0.2);
-            color: #f87171;
+            background-color: var(--error-bg);
+            border: 1px solid var(--error-border);
+            color: var(--error-text);
             padding: 10px 14px;
             border-radius: 12px;
             font-size: 13px;

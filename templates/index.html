@@ -1,0 +1,519 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ITS-SLI | SLA & SLI Панель Мониторинга</title>
+    <!-- Подключаем Google Fonts Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!-- FontAwesome для иконок -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Библиотека Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <link rel="icon" type="image/svg+xml" href="/static/img/favicon.svg">
+    <script>
+        window.currentUser = {
+            username: "{{ session.username }}",
+            role: "{{ session.role }}",
+            isDefaultAdmin: {% if session.is_default_admin %}true{% else %}false{% endif %}
+        };
+    </script>
+</head>
+<body>
+    <div class="app-container">
+        <!-- Боковая панель (Sidebar) -->
+        <aside class="sidebar">
+            <div class="logo">
+                <i class="fa-solid fa-chart-line logo-icon"></i>
+                <div class="logo-text">
+                    <span class="brand">ITS-SLI</span>
+                    <span class="sub">SLI / SLA Engine</span>
+                </div>
+            </div>
+            
+            <nav class="nav-menu">
+                <button class="nav-btn active" data-tab="dashboard">
+                    <i class="fa-solid fa-gauge"></i> <span>Дашборд</span>
+                </button>
+                <button class="nav-btn" data-tab="mappings">
+                    <i class="fa-solid fa-server"></i> <span>Серверы клиентов</span>
+                </button>
+                <button class="nav-btn" data-tab="settings">
+                    <i class="fa-solid fa-sliders"></i> <span>Настройки</span>
+                </button>
+                <button class="nav-btn admin-only" data-tab="users" style="display: none;">
+                    <i class="fa-solid fa-users"></i> <span>Пользователи</span>
+                </button>
+            </nav>
+            
+            <div class="sidebar-footer">
+                <div class="sync-status" id="sync-status">
+                    <i class="fa-solid fa-rotate"></i>
+                    <span>Данные обновлены</span>
+                </div>
+                <button class="sync-btn" id="manual-sync-btn">
+                    <i class="fa-solid fa-arrows-rotate"></i> Синхронизировать
+                </button>
+            </div>
+        </aside>
+
+        <!-- Основной контент -->
+        <main class="main-content">
+            <header class="top-bar">
+                <h1 id="page-title">Панель мониторинга SLA/SLI</h1>
+                
+                <div class="user-profile-header">
+                    <span id="user-display-name"><i class="fa-solid fa-user-shield"></i> {{ session.username }} ({% if session.role == 'admin' %}Админ{% else %}Пользователь{% endif %})</span>
+                    <a href="/logout" class="logout-link" title="Выйти из системы"><i class="fa-solid fa-right-from-bracket"></i> Выйти</a>
+                </div>
+                
+                <!-- Фильтр периода времени -->
+                <div class="period-picker">
+                    <button class="period-quick-btn active" data-period="current-month">Текущий месяц</button>
+                    <button class="period-quick-btn" data-period="prev-month">Прошлый месяц</button>
+                    <button class="period-quick-btn" data-period="last-30">30 дней</button>
+                    <div class="custom-dates">
+                        <input type="date" id="date-start" class="date-input">
+                        <span>—</span>
+                        <input type="date" id="date-end" class="date-input">
+                        <button class="date-apply-btn" id="apply-dates"><i class="fa-solid fa-check"></i></button>
+                    </div>
+                </div>
+            </header>
+
+            <!-- ВКЛАДКА "ДАШБОРД" -->
+            <section id="tab-dashboard" class="tab-content active">
+                <!-- Карточки суммарной статистики (KPI) -->
+                <div class="kpi-grid">
+                    <div class="kpi-card">
+                        <div class="kpi-info">
+                            <span class="kpi-label">Средний SLA</span>
+                            <span class="kpi-value" id="avg-sla">99.9%</span>
+                        </div>
+                        <div class="kpi-icon sla-icon">
+                            <i class="fa-solid fa-shield-halved"></i>
+                        </div>
+                    </div>
+                    <div class="kpi-card">
+                        <div class="kpi-info">
+                            <span class="kpi-label">Ср. время реакции (MTTD)</span>
+                            <span class="kpi-value" id="avg-mttd">00:00:00</span>
+                        </div>
+                        <div class="kpi-icon reaction-icon">
+                            <i class="fa-solid fa-bolt"></i>
+                        </div>
+                    </div>
+                    <div class="kpi-card">
+                        <div class="kpi-info">
+                            <span class="kpi-label">Ср. время решения (MTTR)</span>
+                            <span class="kpi-value" id="avg-mttr">00:00:00</span>
+                        </div>
+                        <div class="kpi-icon resolution-icon">
+                            <i class="fa-solid fa-wrench"></i>
+                        </div>
+                    </div>
+                    <div class="kpi-card">
+                        <div class="kpi-info">
+                            <span class="kpi-label">Всего инцидентов</span>
+                            <span class="kpi-value" id="total-incidents">0</span>
+                        </div>
+                        <div class="kpi-icon incidents-icon">
+                            <i class="fa-solid fa-triangle-exclamation"></i>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Графики -->
+                <div class="charts-grid">
+                    <div class="chart-container card">
+                        <h3>Сравнение SLA клиентов</h3>
+                        <div class="chart-wrapper">
+                            <canvas id="slaChart"></canvas>
+                        </div>
+                    </div>
+                    <div class="chart-container card">
+                        <h3>Структура инцидентов</h3>
+                        <div class="chart-wrapper">
+                            <canvas id="incidentChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Детальный список-аккордеон -->
+                <div class="data-section card">
+                    <div class="data-header">
+                        <h3>Отчет по клиентам</h3>
+                        <div class="report-actions">
+                            <button class="action-btn email-report" id="email-report-btn">
+                                <i class="fa-solid fa-envelope"></i> Отправить на Email
+                            </button>
+                            <button class="action-btn tg-report" id="tg-report-btn">
+                                <i class="fa-solid fa-paper-plane"></i> Отчет в Telegram
+                            </button>
+                            <button class="action-btn print-report" onclick="window.print()">
+                                <i class="fa-solid fa-print"></i> Печать / PDF
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div class="table-container">
+                        <div class="table-header-row">
+                            <div class="col-expand"></div>
+                            <div class="col-name sortable active" data-sort="name">Клиент / Сервер <span class="sort-icon"><i class="fa-solid fa-sort-up"></i></span></div>
+                            <div class="col-sla sortable" data-sort="sla">Uptime % <span class="sort-icon"><i class="fa-solid fa-sort"></i></span></div>
+                            <div class="col-downtime sortable" data-sort="downtime">Простой <span class="sort-icon"><i class="fa-solid fa-sort"></i></span></div>
+                            <div class="col-incidents sortable" data-sort="incidents">Сбоев <span class="sort-icon"><i class="fa-solid fa-sort"></i></span></div>
+                            <div class="col-mttd sortable" data-sort="mttd">Реакция (MTTD) <span class="sort-icon"><i class="fa-solid fa-sort"></i></span></div>
+                            <div class="col-mttr sortable" data-sort="mttr">Решение (MTTR) <span class="sort-icon"><i class="fa-solid fa-sort"></i></span></div>
+                        </div>
+                        <div id="clients-accordion-list" class="accordion-list">
+                            <!-- Заполняется динамически через JS -->
+                            <div class="empty-state">Загрузка данных...</div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ВКЛАДКА "СОПОСТАВЛЕНИЕ СЕРВЕРОВ" -->
+            <section id="tab-mappings" class="tab-content">
+                <div class="mappings-layout">
+                    <!-- Форма добавления -->
+                    <div class="card mappings-form-card">
+                        <h3>Редактировать привязку сервера</h3>
+                        <form id="mapping-form">
+                            <div class="form-group">
+                                <label for="zabbix-host-select">Сервер Zabbix <span class="required">*</span></label>
+                                <div class="select-wrapper">
+                                    <select id="zabbix-host-select" required>
+                                        <option value="">Выберите сервер...</option>
+                                    </select>
+                                </div>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="client-name-input">Имя клиента <span class="required">*</span></label>
+                                <input type="text" id="client-name-input" placeholder="Напр., Рога и Копыта" required list="existing-clients">
+                                <datalist id="existing-clients">
+                                    <!-- Заполняется динамически -->
+                                </datalist>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="comment-input">Комментарий / Назначение</label>
+                                <textarea id="comment-input" rows="3" placeholder="Напр., База данных 1С (Основная)"></textarea>
+                            </div>
+                            
+                            <button type="submit" class="submit-btn">
+                                <i class="fa-solid fa-save"></i> Сохранить изменения
+                            </button>
+                        </form>
+                    </div>
+
+                    <!-- Таблица текущих маппингов -->
+                    <div class="card mappings-list-card">
+                        <h3>Текущие привязки серверов ({num_mappings})</h3>
+                        <div class="search-box">
+                            <i class="fa-solid fa-magnifying-glass"></i>
+                            <input type="text" id="mappings-search" placeholder="Поиск по хосту, клиенту...">
+                        </div>
+                        
+                        <div class="simple-table-container">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>Хост Zabbix</th>
+                                        <th>Клиент</th>
+                                        <th>Комментарий</th>
+                                        <th style="width: 80px; text-align: center;">Действие</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="mappings-table-body">
+                                    <tr>
+                                        <td colspan="4" class="text-center">Загрузка данных...</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ВКЛАДКА "НАСТРОЙКИ" -->
+            <section id="tab-settings" class="tab-content">
+                <form id="settings-form">
+                    <div class="settings-grid">
+                        <!-- Zabbix -->
+                        <div class="card">
+                            <div class="card-header-icon zbx-color"><i class="fa-solid fa-plug"></i></div>
+                            <h3>Интеграция с Zabbix</h3>
+                            
+                            <div class="form-group">
+                                <label for="zabbix_url">Адрес Zabbix API (URL)</label>
+                                <input type="url" id="zabbix_url" placeholder="https://zabbix.company.com">
+                            </div>
+                            <div class="form-group">
+                                <label for="zabbix_token">Токен доступа API (Token)</label>
+                                <input type="password" id="zabbix_token" placeholder="Введите токен Zabbix Token">
+                                <span class="help-text">Если используется авторизация по токену (рекомендуется)</span>
+                            </div>
+                            <div class="divider">ИЛИ через логин / пароль</div>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="zabbix_user">Пользователь</label>
+                                    <input type="text" id="zabbix_user">
+                                </div>
+                                <div class="form-group">
+                                    <label for="zabbix_password">Пароль</label>
+                                    <input type="password" id="zabbix_password">
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- SMTP -->
+                        <div class="card">
+                            <div class="card-header-icon smtp-color"><i class="fa-solid fa-envelope"></i></div>
+                            <h3>Настройка SMTP почты</h3>
+                            
+                            <div class="form-row">
+                                <div class="form-group flex-3">
+                                    <label for="smtp_host">SMTP Сервер</label>
+                                    <input type="text" id="smtp_host" placeholder="smtp.yandex.ru">
+                                </div>
+                                <div class="form-group flex-1">
+                                    <label for="smtp_port">Порт</label>
+                                    <input type="number" id="smtp_port" value="587">
+                                </div>
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="smtp_user">Пользователь SMTP (Email)</label>
+                                    <input type="email" id="smtp_user" placeholder="alert@company.com">
+                                </div>
+                                <div class="form-group">
+                                    <label for="smtp_password">Пароль SMTP</label>
+                                    <input type="password" id="smtp_password">
+                                </div>
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="smtp_from">Email отправителя (From)</label>
+                                    <input type="email" id="smtp_from" placeholder="alerts@company.com">
+                                </div>
+                                <div class="form-group flex-row-align">
+                                    <label class="checkbox-container">
+                                        <input type="checkbox" id="smtp_use_tls" checked>
+                                        <span class="checkmark"></span>
+                                        Использовать TLS/SSL
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Telegram -->
+                        <div class="card">
+                            <div class="card-header-icon tg-color"><i class="fa-brands fa-telegram"></i></div>
+                            <h3>Интеграция с Telegram</h3>
+                            
+                            <div class="form-group">
+                                <label class="checkbox-container">
+                                    <input type="checkbox" id="telegram_enabled">
+                                    <span class="checkmark"></span>
+                                    Включить уведомления и отчеты
+                                </label>
+                            </div>
+                            <div class="form-group">
+                                <label for="telegram_bot_token">Токен Telegram-бота</label>
+                                <input type="password" id="telegram_bot_token" placeholder="123456789:ABCdefGhIJKlmNoPQRsT">
+                            </div>
+                            <div class="form-group">
+                                <label for="telegram_chat_id">Chat ID (ID группы / канала)</label>
+                                <input type="text" id="telegram_chat_id" placeholder="-100123456789">
+                            </div>
+                        </div>
+
+                        <!-- Логика SLA -->
+                        <div class="card">
+                            <div class="card-header-icon logic-color"><i class="fa-solid fa-calculator"></i></div>
+                            <h3>Параметры расчета SLA</h3>
+                            
+                            <div class="form-group">
+                                <label class="checkbox-container">
+                                    <input type="checkbox" id="working_hours_enabled">
+                                    <span class="checkmark"></span>
+                                    Учитывать только рабочее время (Business Hours)
+                                </label>
+                            </div>
+                            
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="working_hours_start">Начало дня</label>
+                                    <input type="time" id="working_hours_start" value="09:00">
+                                </div>
+                                <div class="form-group">
+                                    <label for="working_hours_end">Конец дня</label>
+                                    <input type="time" id="working_hours_end" value="18:00">
+                                </div>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="working_days">Рабочие дни (номера через запятую, Пн=1, Вс=7)</label>
+                                <input type="text" id="working_days" value="1,2,3,4,5">
+                            </div>
+                            
+                            <div class="form-group" style="margin-top: 15px;">
+                                <label class="checkbox-container">
+                                    <input type="checkbox" id="exclude_vpn_issues">
+                                    <span class="checkmark"></span>
+                                    Исключать сбои &lt; 1 мин (проблемы сети/VPN) из общего SLA
+                                </label>
+                            </div>
+                        </div>
+
+                        <!-- Смена пароля -->
+                        <div class="card">
+                            <div class="card-header-icon logic-color" style="background: linear-gradient(135deg, #ec4899, #f43f5e);"><i class="fa-solid fa-key"></i></div>
+                            <h3>Смена пароля</h3>
+                            <div class="form-group">
+                                <label for="change_old_password">Текущий пароль</label>
+                                <input type="password" id="change_old_password" placeholder="Введите текущий пароль">
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="change_new_password">Новый пароль</label>
+                                    <input type="password" id="change_new_password" placeholder="Не менее 5 символов">
+                                </div>
+                                <div class="form-group">
+                                    <label for="change_confirm_password">Подтверждение нового пароля</label>
+                                    <input type="password" id="change_confirm_password" placeholder="Повторите новый пароль">
+                                </div>
+                            </div>
+                            <button type="button" class="test-btn" id="submit-change-password-btn" style="margin-top: 10px; width: 100%; border: 1px solid rgba(236, 72, 153, 0.4); color: #f43f5e;">
+                                <i class="fa-solid fa-lock"></i> Сменить пароль
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="settings-actions">
+                        <button type="button" class="test-btn" id="test-smtp-btn">
+                            <i class="fa-solid fa-paper-plane"></i> Проверить почту
+                        </button>
+                        <button type="button" class="test-btn" id="test-tg-btn">
+                            <i class="fa-brands fa-telegram"></i> Проверить Telegram
+                        </button>
+                        <button type="submit" class="save-settings-btn">
+                            <i class="fa-solid fa-save"></i> Сохранить настройки
+                        </button>
+                    </div>
+                </form>
+            </section>
+
+            <!-- ВКЛАДКА "ПОЛЬЗОВАТЕЛИ" (Администратор) -->
+            <section id="tab-users" class="tab-content">
+                <div class="settings-grid">
+                    <!-- Список пользователей -->
+                    <div class="card flex-3">
+                        <div class="card-header-icon"><i class="fa-solid fa-users"></i></div>
+                        <h3>Список пользователей системы</h3>
+                        <div class="table-container" style="margin-top: 20px; overflow-x: auto;">
+                            <table class="incidents-table" id="users-table">
+                                <thead>
+                                    <tr>
+                                        <th>ID</th>
+                                        <th>Имя пользователя (Логин)</th>
+                                        <th>Роль</th>
+                                        <th style="text-align: right;">Действия</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <!-- Заполняется динамически -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- Создание нового пользователя -->
+                    <div class="card flex-2">
+                        <div class="card-header-icon logic-color" style="background: linear-gradient(135deg, #10b981, #059669);"><i class="fa-solid fa-user-plus"></i></div>
+                        <h3>Создать пользователя</h3>
+                        <form id="create-user-form" style="margin-top: 20px;">
+                            <div class="form-group">
+                                <label for="new_user_username">Логин (Имя пользователя)</label>
+                                <input type="text" id="new_user_username" required placeholder="Введите логин">
+                            </div>
+                            <div class="form-group">
+                                <label for="new_user_password">Пароль</label>
+                                <input type="password" id="new_user_password" required placeholder="Введите пароль">
+                            </div>
+                            <div class="form-group">
+                                <label for="new_user_role">Роль</label>
+                                <div class="select-wrapper">
+                                    <select id="new_user_role">
+                                        <option value="user">Пользователь (Просмотр / Комментарии)</option>
+                                        <option value="admin">Администратор (Полные права)</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <button type="submit" class="save-settings-btn" style="margin-top: 15px; width: 100%;">
+                                <i class="fa-solid fa-plus"></i> Создать аккаунт
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- Модальное окно ввода Email для ручной отправки -->
+    <div id="email-modal" class="modal">
+        <div class="modal-content">
+            <span class="close-modal">&times;</span>
+            <h3>Отправить SLA-отчет на почту</h3>
+            <div class="form-group" style="margin-top: 15px;">
+                <label for="modal-email-input">Email получателя</label>
+                <input type="email" id="modal-email-input" placeholder="manager@client.com" required style="width: 100%; box-sizing: border-box;">
+            </div>
+            <button type="button" class="submit-btn" id="modal-send-btn" style="margin-top: 15px; width: 100%;">
+                <i class="fa-solid fa-envelope"></i> Отправить
+            </button>
+        </div>
+    </div>
+
+    <!-- Модальное окно редактирования комментария к сбою -->
+    <div id="comment-modal" class="modal">
+        <div class="modal-content">
+            <span class="close-modal" id="close-comment-modal">&times;</span>
+            <h3>Редактировать комментарий к сбою</h3>
+            <p id="comment-modal-incident-details" style="font-size: 12px; color: var(--text-secondary); margin-top: 8px; line-height: 1.4;"></p>
+            
+            <div class="form-group" style="margin-top: 15px;">
+                <label for="modal-comment-category">Категория сбоя</label>
+                <div class="select-wrapper">
+                    <select id="modal-comment-category">
+                        <option value="auto">Автоматически (определять по Zabbix)</option>
+                        <option value="server">Сбой ПО / Сервера (учитывать в SLA)</option>
+                        <option value="network">Сеть / VPN (исключать из SLA при настроенном лимите)</option>
+                        <option value="maintenance">Обслуживание (не считать простоем)</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="form-group" style="margin-top: 15px;">
+                <label for="modal-comment-textarea">Описание причины сбоя / Проделанные работы</label>
+                <textarea id="modal-comment-textarea" placeholder="Например: Авария у провайдера РТК, переключили на резервный канал. или Плановая перезагрузка после обновлений." required style="width: 100%; height: 100px; box-sizing: border-box; background: rgba(255,255,255,0.04); border: 1px solid var(--border-color); border-radius: 8px; color: var(--text-primary); padding: 10px; outline: none; resize: vertical; margin-top: 5px;"></textarea>
+            </div>
+            <button type="button" class="submit-btn" id="modal-save-comment-btn" style="margin-top: 15px; width: 100%;">
+                <i class="fa-solid fa-save"></i> Сохранить комментарий
+            </button>
+        </div>
+    </div>
+
+    <!-- Нотификации об успехе / ошибке -->
+    <div id="toast-container"></div>
+
+    <!-- Подключаем логику приложения -->
+    <script src="/static/js/app.js"></script>
+</body>
+</html>

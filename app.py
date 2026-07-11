@@ -1,0 +1,347 @@
+from flask import Flask, render_template, request, jsonify, send_from_directory, session, redirect, url_for
+import os
+import time
+import datetime
+from dotenv import load_dotenv
+from functools import wraps
+
+import database
+import zabbix_api
+import analytics
+import scheduler
+import notifier
+
+# Загрузка переменных окружения
+load_dotenv()
+
+app = Flask(__name__, template_folder='templates', static_folder='static')
+app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'zabbix_sli_secret_key_8899_prod')
+
+# Middleware-декораторы для проверки прав доступа
+def login_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if 'user_id' not in session:
+            if request.path.startswith('/api/'):
+                return jsonify({"status": "error", "message": "Требуется авторизация"}), 401
+            return redirect(url_for('login'))
+        return f(*args, **kwargs)
+    return decorated_function
+
+def admin_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if 'user_id' not in session:
+            if request.path.startswith('/api/'):
+                return jsonify({"status": "error", "message": "Требуется авторизация"}), 401
+            return redirect(url_for('login'))
+        if session.get('role') != 'admin':
+            return jsonify({"status": "error", "message": "Доступ запрещен (требуются права администратора)"}), 403
+        return f(*args, **kwargs)
+    return decorated_function
+
+# Инициализация БД и планировщика
+database.init_db()
+scheduler.init_scheduler()
+
+@app.route('/')
+@login_required
+def index():
+    return render_template('index.html')
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if 'user_id' in session:
+        return redirect(url_for('index'))
+        
+    if request.method == 'POST':
+        if request.is_json:
+            data = request.json
+            username = data.get('username')
+            password = data.get('password')
+        else:
+            username = request.form.get('username')
+            password = request.form.get('password')
+            
+        user = database.authenticate_user(username, password)
+        if user:
+            session['user_id'] = user['id']
+            session['username'] = user['username']
+            session['role'] = user['role']
+            
+            is_default_admin = (user['username'] == 'admin' and password == 'admin')
+            session['is_default_admin'] = is_default_admin
+            
+            if request.is_json:
+                return jsonify({
+                    "status": "success", 
+                    "user": {
+                        "username": user['username'], 
+                        "role": user['role'],
+                        "is_default_admin": is_default_admin
+                    }
+                })
+            return redirect(url_for('index'))
+            
+        if request.is_json:
+            return jsonify({"status": "error", "message": "Неверный логин или пароль"}), 400
+        return render_template('login.html', error="Неверный логин или пароль")
+        
+    return render_template('login.html')
+
+@app.route('/logout')
+def logout():
+    session.clear()
+    return redirect(url_for('login'))
+
+@app.route('/api/settings', methods=['GET', 'POST'])
+@login_required
+def handle_settings():
+    if request.method == 'GET':
+        settings = database.get_settings()
+        # Удаляем пароли из выгрузки в целях безопасности (или маскируем)
+        masked_settings = dict(settings)
+        if masked_settings.get('smtp_password'):
+            masked_settings['smtp_password'] = '********'
+        if masked_settings.get('zabbix_password'):
+            masked_settings['zabbix_password'] = '********'
+        return jsonify(masked_settings)
+        
+    elif request.method == 'POST':
+        data = request.json
+        # Считываем текущие настройки, чтобы не стереть пароли, если их прислали в виде '********'
+        current_settings = database.get_settings()
+        new_settings = {}
+        
+        for k, v in data.items():
+            if k in ['smtp_password', 'zabbix_password'] and v == '********':
+                # Оставляем старое значение
+                new_settings[k] = current_settings.get(k, '')
+            else:
+                new_settings[k] = v
+                
+        database.save_settings(new_settings)
+        return jsonify({"status": "success", "message": "Настройки успешно сохранены"})
+
+@app.route('/api/mappings', methods=['GET', 'POST'])
+@login_required
+def handle_mappings():
+    if request.method == 'GET':
+        mappings = database.get_mappings()
+        return jsonify(mappings)
+        
+    elif request.method == 'POST':
+        data = request.json
+        zabbix_hostid = data.get('zabbix_hostid')
+        host_name = data.get('host_name')
+        client_name = data.get('client_name')
+        comment = data.get('comment', '')
+        
+        if not zabbix_hostid or not host_name or not client_name:
+            return jsonify({"status": "error", "message": "Не все обязательные поля заполнены"}), 400
+            
+        database.save_mapping(zabbix_hostid, host_name, client_name, comment, is_manual=1)
+        
+        # Запускаем фоновую синхронизацию Zabbix, чтобы подтянуть данные по новому хосту
+        scheduler._scheduler.add_job(scheduler.sync_zabbix_data, 'date', run_date=datetime.datetime.now())
+        
+        return jsonify({"status": "success", "message": "Сопоставление успешно сохранено"})
+
+@app.route('/api/mappings/<hostid>', methods=['DELETE'])
+@login_required
+def delete_mapping(hostid):
+    database.delete_mapping(hostid)
+    # Запускаем синхронизацию для восстановления автоопределения клиента
+    scheduler.sync_zabbix_data()
+    return jsonify({"status": "success", "message": "Привязка сброшена к автоопределению Zabbix"})
+
+@app.route('/api/zabbix-hosts', methods=['GET'])
+@login_required
+def get_zabbix_hosts():
+    settings = database.get_settings()
+    url = settings.get('zabbix_url')
+    token = settings.get('zabbix_token')
+    user = settings.get('zabbix_user')
+    password = settings.get('zabbix_password')
+    
+    if not url:
+        return jsonify({"status": "error", "message": "Zabbix не настроен"}), 400
+        
+    try:
+        api = zabbix_api.ZabbixAPI(url, token, user, password)
+        api.login()
+        hosts = api.get_hosts()
+        return jsonify(hosts)
+    except Exception as e:
+        return jsonify({"status": "error", "message": f"Ошибка Zabbix: {str(e)}"}), 500
+
+@app.route('/api/report', methods=['GET'])
+@login_required
+def get_report():
+    # По умолчанию берем текущий месяц
+    now = datetime.datetime.now()
+    first_day_of_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    
+    start_ts = request.args.get('start_time', type=int)
+    end_ts = request.args.get('end_time', type=int)
+    
+    if not start_ts:
+        start_ts = int(first_day_of_month.timestamp())
+    if not end_ts:
+        end_ts = int(time.time())
+        
+    report = analytics.calculate_sli_report(start_ts, end_ts)
+    
+    # Подмешиваем комментарии по сбоям из локальной БД
+    comments = database.get_incident_comments()
+    for client_name, client in report.items():
+        for srv in client.get('servers', []):
+            for inc in srv.get('incidents', []):
+                ev_id = inc.get('eventid')
+                if ev_id in comments:
+                    inc['comment_text'] = comments[ev_id]['comment']
+                    inc['comment_user'] = comments[ev_id]['username']
+                    inc['comment_date'] = comments[ev_id]['created_at']
+                    
+    return jsonify(report)
+
+@app.route('/api/sync', methods=['POST'])
+@login_required
+def manual_sync():
+    try:
+        scheduler.sync_zabbix_data()
+        return jsonify({"status": "success", "message": "Синхронизация успешно завершена"})
+    except Exception as e:
+        return jsonify({"status": "error", "message": f"Ошибка синхронизации: {str(e)}"}), 500
+
+@app.route('/api/send-email', methods=['POST'])
+@login_required
+def send_email_report():
+    data = request.json
+    recipient = data.get('recipient')
+    start_ts = data.get('start_time', type=int)
+    end_ts = data.get('end_time', type=int)
+    
+    if not recipient:
+        return jsonify({"status": "error", "message": "Укажите адрес получателя"}), 400
+        
+    now = datetime.datetime.now()
+    first_day_of_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    
+    if not start_ts:
+        start_ts = int(first_day_of_month.timestamp())
+    if not end_ts:
+        end_ts = int(time.time())
+        
+    try:
+        date_start_str = datetime.datetime.fromtimestamp(start_ts).strftime('%d.%m.%Y')
+        date_end_str = datetime.datetime.fromtimestamp(end_ts).strftime('%d.%m.%Y')
+        subject = f"Ручной отчет SLA/SLI за {date_start_str} - {date_end_str}"
+        
+        notifier.send_email_report(recipient, subject, start_ts, end_ts)
+        return jsonify({"status": "success", "message": f"Отчет отправлен на {recipient}"})
+    except Exception as e:
+        return jsonify({"status": "error", "message": f"Ошибка отправки почты: {str(e)}"}), 500
+
+@app.route('/api/send-telegram', methods=['POST'])
+@login_required
+def send_telegram_report():
+    data = request.json
+    start_ts = data.get('start_time', type=int)
+    end_ts = data.get('end_time', type=int)
+    
+    now = datetime.datetime.now()
+    first_day_of_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    
+    if not start_ts:
+        start_ts = int(first_day_of_month.timestamp())
+    if not end_ts:
+        end_ts = int(time.time())
+        
+    try:
+        success = notifier.send_telegram_report(start_ts, end_ts)
+        if success:
+            return jsonify({"status": "success", "message": "Отчет успешно отправлен в Telegram"})
+        else:
+            return jsonify({"status": "error", "message": "Не удалось отправить отчет (проверьте настройки Telegram)"}), 400
+    except Exception as e:
+        return jsonify({"status": "error", "message": f"Ошибка отправки в Telegram: {str(e)}"}), 500
+
+# === API для комментариев и профиля ===
+
+@app.route('/api/incidents/<eventid>/comment', methods=['POST'])
+@login_required
+def add_incident_comment(eventid):
+    data = request.json
+    comment = data.get('comment', '')
+    
+    if not comment:
+        return jsonify({"status": "error", "message": "Комментарий не может быть пустым"}), 400
+        
+    database.save_incident_comment(eventid, comment, session['username'])
+    return jsonify({"status": "success", "message": "Комментарий успешно сохранен"})
+
+@app.route('/api/incidents/<eventid>/category', methods=['POST'])
+@login_required
+def override_incident_category(eventid):
+    data = request.json
+    category = data.get('category', 'auto')
+    
+    if category not in ['auto', 'server', 'network', 'maintenance']:
+        return jsonify({"status": "error", "message": "Неверная категория"}), 400
+        
+    database.save_category_override(eventid, category)
+    return jsonify({"status": "success", "message": "Категория сбоя успешно изменена"})
+
+@app.route('/api/profile/change-password', methods=['POST'])
+@login_required
+def change_password():
+    data = request.json
+    old_password = data.get('old_password')
+    new_password = data.get('new_password')
+    
+    if not old_password or not new_password:
+        return jsonify({"status": "error", "message": "Заполните все поля"}), 400
+        
+    success, msg = database.change_password(session['user_id'], old_password, new_password)
+    if success:
+        if session.get('is_default_admin'):
+            session['is_default_admin'] = False
+        return jsonify({"status": "success", "message": msg})
+    return jsonify({"status": "error", "message": msg}), 400
+
+# === API для управления пользователями ===
+
+@app.route('/api/users', methods=['GET', 'POST'])
+@admin_required
+def manage_users():
+    if request.method == 'GET':
+        users = database.get_all_users()
+        return jsonify(users)
+        
+    elif request.method == 'POST':
+        data = request.json
+        username = data.get('username')
+        password = data.get('password')
+        role = data.get('role', 'user')
+        
+        if not username or not password:
+            return jsonify({"status": "error", "message": "Имя пользователя и пароль обязательны"}), 400
+            
+        success = database.create_user(username, password, role)
+        if success:
+            return jsonify({"status": "success", "message": f"Пользователь {username} успешно создан"})
+        return jsonify({"status": "error", "message": "Пользователь с таким именем уже существует"}), 400
+
+@app.route('/api/users/<int:user_id>', methods=['DELETE'])
+@admin_required
+def delete_user(user_id):
+    success, msg = database.delete_user(user_id)
+    if success:
+        return jsonify({"status": "success", "message": msg})
+    return jsonify({"status": "error", "message": msg}), 400
+
+if __name__ == '__main__':
+    port = int(os.environ.get('PORT', 5000))
+    # Включаем прослушивание на всех интерфейсах для развертывания
+    app.run(host='0.0.0.0', port=port, debug=False)

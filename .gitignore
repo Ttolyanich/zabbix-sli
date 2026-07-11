@@ -1,0 +1,30 @@
+# База данных и локальные файлы данных
+data/
+*.db
+*.sqlite
+
+# Окружение и секреты
+.env
+
+# Временные файлы Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+
+# Виртуальные окружения
+venv/
+.venv/
+env/
+
+# IDE и редакторы
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Файлы логов и отчетов
+*.log
+reports/
+*.xlsx

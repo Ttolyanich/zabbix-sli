@@ -217,10 +217,22 @@ def manual_sync():
 @app.route('/api/send-email', methods=['POST'])
 @login_required
 def send_email_report():
-    data = request.json
+    data = request.json or {}
     recipient = data.get('recipient')
-    start_ts = data.get('start_time', type=int)
-    end_ts = data.get('end_time', type=int)
+    start_ts = data.get('start_time')
+    end_ts = data.get('end_time')
+    
+    if start_ts is not None:
+        try:
+            start_ts = int(start_ts)
+        except (ValueError, TypeError):
+            start_ts = None
+            
+    if end_ts is not None:
+        try:
+            end_ts = int(end_ts)
+        except (ValueError, TypeError):
+            end_ts = None
     
     if not recipient:
         return jsonify({"status": "error", "message": "Укажите адрес получателя"}), 400
@@ -246,9 +258,21 @@ def send_email_report():
 @app.route('/api/send-telegram', methods=['POST'])
 @login_required
 def send_telegram_report():
-    data = request.json
-    start_ts = data.get('start_time', type=int)
-    end_ts = data.get('end_time', type=int)
+    data = request.json or {}
+    start_ts = data.get('start_time')
+    end_ts = data.get('end_time')
+    
+    if start_ts is not None:
+        try:
+            start_ts = int(start_ts)
+        except (ValueError, TypeError):
+            start_ts = None
+            
+    if end_ts is not None:
+        try:
+            end_ts = int(end_ts)
+        except (ValueError, TypeError):
+            end_ts = None
     
     now = datetime.datetime.now()
     first_day_of_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)

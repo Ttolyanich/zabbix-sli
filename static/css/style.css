@@ -732,6 +732,7 @@ body {
     border-radius: 8px;
     font-family: var(--font-main);
     font-size: 14px;
+    color-scheme: var(--color-scheme);
     transition: border-color var(--transition-speed);
 }
 

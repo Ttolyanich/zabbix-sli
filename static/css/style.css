@@ -1251,57 +1251,252 @@ body {
     color: #ef4444;
 }
 
+/* Кастомный выпадающий список (Custom Searchable Select) */
+.custom-select-container {
+    position: relative;
+    width: 100%;
+}
+
+.custom-select-trigger {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background-color: var(--bg-input);
+    border: 1px solid var(--border-color);
+    color: var(--text-input);
+    padding: 10px 14px;
+    border-radius: 8px;
+    font-family: var(--font-main);
+    font-size: 14px;
+    cursor: pointer;
+    transition: border-color var(--transition-speed);
+}
+
+.custom-select-trigger:hover {
+    border-color: var(--text-secondary);
+}
+
+.custom-select-container.open .custom-select-trigger {
+    border-color: var(--border-focus);
+}
+
+.custom-select-trigger i {
+    font-size: 11px;
+    color: var(--text-secondary);
+    transition: transform var(--transition-speed);
+}
+
+.custom-select-container.open .custom-select-trigger i {
+    transform: rotate(180deg);
+}
+
+.custom-select-dropdown {
+    display: none;
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 0;
+    width: 100%;
+    background-color: var(--bg-modal);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+    z-index: 1000;
+    overflow: hidden;
+}
+
+.custom-select-container.open .custom-select-dropdown {
+    display: block;
+}
+
+.custom-select-search {
+    display: flex;
+    align-items: center;
+    border-bottom: 1px solid var(--border-color);
+    padding: 10px 14px;
+    background-color: rgba(0, 0, 0, 0.05);
+}
+
+.custom-select-search i {
+    color: var(--text-secondary);
+    font-size: 13px;
+    margin-right: 8px;
+}
+
+.custom-select-search input {
+    background: none !important;
+    border: none !important;
+    padding: 0 !important;
+    color: var(--text-primary) !important;
+    font-size: 13px !important;
+    width: 100% !important;
+    outline: none !important;
+}
+
+.custom-select-options {
+    max-height: 250px;
+    overflow-y: auto;
+}
+
+/* Стилизация скроллбара */
+.custom-select-options::-webkit-scrollbar {
+    width: 6px;
+}
+
+.custom-select-options::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.custom-select-options::-webkit-scrollbar-thumb {
+    background-color: var(--border-color);
+    border-radius: 3px;
+}
+
+.custom-select-option {
+    padding: 10px 14px;
+    font-size: 13px;
+    color: var(--text-primary);
+    cursor: pointer;
+    transition: background-color var(--transition-speed);
+}
+
+.custom-select-option:hover {
+    background-color: var(--bg-hover);
+}
+
+.custom-select-option.selected {
+    background-color: var(--bg-active);
+    font-weight: 600;
+}
+
 /* СТИЛИ ПЕЧАТИ И PDF-ЭКСПОРТА */
+#print-report-container {
+    display: none;
+}
+
 @media print {
-    body {
-        background: white !important;
-        color: black !important;
-    }
-    
-    .sidebar, .period-picker, .report-actions, .top-bar h1, .sidebar-footer, .sync-btn {
+    /* Скрываем весь стандартный интерфейс */
+    .dashboard-container, #toast-container, .modal, #theme-toggle-btn {
         display: none !important;
     }
     
-    .main-content {
-        padding: 0 !important;
-        height: auto !important;
-        overflow: visible !important;
+    body {
+        background: #ffffff !important;
+        color: #000000 !important;
     }
     
-    .card {
-        background: white !important;
-        border: none !important;
-        box-shadow: none !important;
-        padding: 0 !important;
-        margin-bottom: 20px !important;
+    /* Показываем контейнер отчета для печати */
+    #print-report-container {
+        display: block !important;
+        width: 100%;
+        color: #000;
+        background: #fff;
+        font-family: 'Segoe UI', Arial, sans-serif;
     }
     
-    .kpi-grid, .charts-grid {
-        display: none !important; /* Убираем графики и KPI при печати */
+    .print-header {
+        text-align: center;
+        margin-bottom: 25px;
+        border-bottom: 2px solid #333;
+        padding-bottom: 12px;
     }
     
-    /* Делаем аккордеоны развернутыми */
-    .accordion-content {
-        max-height: none !important;
-        background: none !important;
+    .print-header h1 {
+        font-size: 22px;
+        margin: 0 0 6px 0;
+        color: #1a365d;
+        font-weight: 700;
+        text-transform: uppercase;
     }
     
-    .server-row {
-        padding-left: 20px !important;
+    .print-meta {
+        font-size: 12px;
+        color: #555;
+        display: flex;
+        justify-content: space-between;
     }
     
-    .incidents-container {
-        padding-left: 40px !important;
-        background: none !important;
+    .print-stats-grid {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 12px;
+        margin-bottom: 25px;
     }
     
-    .table-header-row {
-        background-color: #f1f5f9 !important;
-        color: #1e293b !important;
-        border-bottom: 2px solid #cbd5e1 !important;
+    .print-stat-card {
+        border: 1px solid #cbd5e1;
+        border-radius: 8px;
+        padding: 12px;
+        text-align: center;
+        background: #f8fafc;
     }
     
-    .accordion-item {
-        page-break-inside: avoid;
+    .print-stat-label {
+        font-size: 10px;
+        text-transform: uppercase;
+        color: #64748b;
+        margin-bottom: 4px;
+        font-weight: 600;
+        letter-spacing: 0.5px;
+    }
+    
+    .print-stat-value {
+        font-size: 16px;
+        font-weight: 700;
+        color: #0f172a;
+    }
+    
+    .print-section-title {
+        font-size: 15px;
+        font-weight: 700;
+        color: #1e3a8a;
+        margin: 20px 0 10px 0;
+        border-bottom: 1px solid #cbd5e1;
+        padding-bottom: 4px;
+        page-break-after: avoid;
+    }
+    
+    .print-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-bottom: 25px;
+        font-size: 11px;
+    }
+    
+    .print-table th, .print-table td {
+        border: 1px solid #cbd5e1;
+        padding: 6px 8px;
+        text-align: left;
+    }
+    
+    .print-table th {
+        background-color: #f1f5f9;
+        font-weight: 600;
+        color: #334155;
+    }
+    
+    .print-table tr.client-group-row {
+        background-color: #e2e8f0;
+        font-weight: 700;
+    }
+    
+    .print-table tr.client-group-row td {
+        border-bottom: 1.5px solid #94a3b8;
+    }
+    
+    .print-sla-badge {
+        font-weight: 700;
+    }
+    
+    .print-sla-badge.good { color: #166534; }
+    .print-sla-badge.warn { color: #9a3412; }
+    .print-sla-badge.poor { color: #991b1b; }
+    
+    @page {
+        size: A4;
+        margin: 12mm 12mm 12mm 12mm;
+    }
+    
+    .page-break {
+        page-break-before: always;
     }
 }

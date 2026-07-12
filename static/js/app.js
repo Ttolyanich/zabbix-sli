@@ -16,6 +16,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initPeriodPicker();
     initSortHeaders();
     initEventHandlers();
+    initCustomSearchableSelect();
     
     // По умолчанию загружаем данные
     loadDashboardData();
@@ -261,6 +262,7 @@ async function loadDashboardData() {
         updateKPIs(summary);
         renderCharts(data, vpnIssuesCount, serverIssuesCount);
         renderAccordion(data);
+        updatePrintReport(data, summary);
         
     } catch (err) {
         showToast('Ошибка при загрузке данных дашборда', 'error');
@@ -702,12 +704,28 @@ async function loadMappings() {
             btn.addEventListener('click', (e) => {
                 e.stopPropagation();
                 const hostid = btn.getAttribute('data-id');
+                const hostName = btn.getAttribute('data-name');
                 const client = btn.getAttribute('data-client');
                 const comment = btn.getAttribute('data-comment');
                 
                 // Заполняем форму слева
-                const select = document.getElementById('zabbix-host-select');
-                select.value = hostid;
+                const hiddenInput = document.getElementById('zabbix-host-select');
+                hiddenInput.value = hostid;
+                
+                const customSelect = document.getElementById('zabbix-host-custom-select');
+                if (customSelect) {
+                    customSelect.querySelector('.custom-select-value').innerText = hostName;
+                    
+                    // Выделяем выбранную опцию в списке
+                    const optionsContainer = customSelect.querySelector('.custom-select-options');
+                    optionsContainer.querySelectorAll('.custom-select-option').forEach(opt => {
+                        if (opt.getAttribute('data-value') === hostid) {
+                            opt.classList.add('selected');
+                        } else {
+                            opt.classList.remove('selected');
+                        }
+                    });
+                }
                 
                 document.getElementById('client-name-input').value = client;
                 document.getElementById('comment-input').value = comment;
@@ -725,27 +743,50 @@ async function loadMappings() {
 }
 
 async function loadZabbixHostsForSelect() {
-    const select = document.getElementById('zabbix-host-select');
-    select.innerHTML = '<option value="">Загрузка хостов из Zabbix...</option>';
+    const customSelect = document.getElementById('zabbix-host-custom-select');
+    if (!customSelect) return;
+    
+    const triggerValue = customSelect.querySelector('.custom-select-value');
+    const optionsContainer = customSelect.querySelector('.custom-select-options');
+    const hiddenInput = document.getElementById('zabbix-host-select');
+    
+    triggerValue.innerText = 'Загрузка хостов...';
+    optionsContainer.innerHTML = '';
     
     try {
         const response = await fetch('/api/zabbix-hosts');
         const hosts = await response.json();
         
         if (hosts.status === 'error') {
-            select.innerHTML = `<option value="">Ошибка: ${hosts.message}</option>`;
+            triggerValue.innerText = `Ошибка: ${hosts.message}`;
             return;
         }
         
         availableZabbixHosts = hosts;
+        triggerValue.innerText = 'Выберите хост...';
+        hiddenInput.value = '';
         
-        select.innerHTML = '<option value="">Выберите хост...</option>';
         hosts.forEach(h => {
-            select.innerHTML += `<option value="${h.hostid}" data-name="${h.name}">${h.name}</option>`;
+            const opt = document.createElement('div');
+            opt.className = 'custom-select-option';
+            opt.setAttribute('data-value', h.hostid);
+            opt.innerText = h.name;
+            
+            opt.addEventListener('click', () => {
+                hiddenInput.value = h.hostid;
+                triggerValue.innerText = h.name;
+                customSelect.classList.remove('open');
+                
+                // Снимаем выделение с других опций и ставим на текущую
+                optionsContainer.querySelectorAll('.custom-select-option').forEach(o => o.classList.remove('selected'));
+                opt.classList.add('selected');
+            });
+            
+            optionsContainer.appendChild(opt);
         });
         
     } catch (e) {
-        select.innerHTML = '<option value="">Ошибка загрузки хостов из Zabbix</option>';
+        triggerValue.innerText = 'Ошибка загрузки хостов из Zabbix';
     }
 }
 
@@ -767,9 +808,12 @@ document.getElementById('mappings-search').addEventListener('input', (e) => {
 // Форма маппингов
 document.getElementById('mapping-form').addEventListener('submit', async (e) => {
     e.preventDefault();
-    const select = document.getElementById('zabbix-host-select');
-    const zabbix_hostid = select.value;
-    const host_name = select.options[select.selectedIndex].getAttribute('data-name');
+    const zabbix_hostid = document.getElementById('zabbix-host-select').value;
+    let host_name = availableZabbixHosts.find(h => h.hostid === zabbix_hostid)?.name;
+    if (!host_name) {
+        const customSelect = document.getElementById('zabbix-host-custom-select');
+        host_name = customSelect ? customSelect.querySelector('.custom-select-value').innerText : '';
+    }
     const client_name = document.getElementById('client-name-input').value.trim();
     const comment = document.getElementById('comment-input').value.trim();
     
@@ -789,6 +833,11 @@ document.getElementById('mapping-form').addEventListener('submit', async (e) => 
         if (res.status === 'success') {
             showToast('Сервер клиента успешно добавлен!');
             document.getElementById('mapping-form').reset();
+            const customSelect = document.getElementById('zabbix-host-custom-select');
+            if (customSelect) {
+                customSelect.querySelector('.custom-select-value').innerText = 'Выберите хост...';
+                customSelect.querySelectorAll('.custom-select-option').forEach(o => o.classList.remove('selected'));
+            }
             loadMappings();
             loadZabbixHostsForSelect();
             loadDashboardData();
@@ -1260,4 +1309,217 @@ async function loadUsersList() {
     } catch (err) {
         showToast('Не удалось загрузить список пользователей', 'error');
     }
+}
+
+// Инициализация кастомного выпадающего списка с поиском
+function initCustomSearchableSelect() {
+    const selectContainer = document.getElementById('zabbix-host-custom-select');
+    if (!selectContainer) return;
+    
+    const trigger = selectContainer.querySelector('.custom-select-trigger');
+    const dropdown = selectContainer.querySelector('.custom-select-dropdown');
+    const searchInput = selectContainer.querySelector('.custom-select-search input');
+    const optionsContainer = selectContainer.querySelector('.custom-select-options');
+    const hiddenInput = document.getElementById('zabbix-host-select');
+    
+    // Переключение открытости списка
+    trigger.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const isOpen = selectContainer.classList.contains('open');
+        
+        if (!isOpen) {
+            selectContainer.classList.add('open');
+            searchInput.focus();
+            searchInput.value = '';
+            filterCustomOptions('');
+        } else {
+            selectContainer.classList.remove('open');
+        }
+    });
+    
+    // Закрытие списка при клике мимо него
+    document.addEventListener('click', () => {
+        selectContainer.classList.remove('open');
+    });
+    
+    dropdown.addEventListener('click', (e) => {
+        e.stopPropagation();
+    });
+    
+    // Логика фильтрации при вводе
+    searchInput.addEventListener('input', (e) => {
+        filterCustomOptions(e.target.value);
+    });
+    
+    function filterCustomOptions(query) {
+        const lowerQuery = query.toLowerCase();
+        const options = optionsContainer.querySelectorAll('.custom-select-option');
+        options.forEach(opt => {
+            const text = opt.innerText.toLowerCase();
+            if (text.includes(lowerQuery)) {
+                opt.style.display = 'block';
+            } else {
+                opt.style.display = 'none';
+            }
+        });
+    }
+}
+
+// Генерация структурированного PDF/печатного отчета
+function updatePrintReport(reportData, summary) {
+    const container = document.getElementById('print-report-container');
+    if (!container) return;
+    
+    const { startTs, endTs } = getPeriodTimestamps();
+    const dateStartStr = formatPrintDate(startTs);
+    const dateEndStr = formatPrintDate(endTs);
+    const generatedStr = new Date().toLocaleString('ru-RU');
+    
+    // 1. Собираем топ-20 проблемных серверов (по возрастанию SLA)
+    const allServers = [];
+    for (const clientName in reportData) {
+        const client = reportData[clientName];
+        client.servers.forEach(srv => {
+            allServers.push({
+                clientName: clientName,
+                name: srv.name,
+                sla_percent: srv.sla_percent,
+                downtime_sec: srv.downtime_sec,
+                incidents_count: srv.incidents_count,
+                comment: srv.comment || ''
+            });
+        });
+    }
+    
+    // Сортируем: сначала те, у кого SLA ниже
+    allServers.sort((a, b) => a.sla_percent - b.sla_percent);
+    const top20 = allServers.slice(0, 20);
+    
+    // 2. Строим HTML печатной страницы
+    let html = `
+        <div class="print-header">
+            <h1>Отчет по доступности ИТ-сервисов (SLA/SLI)</h1>
+            <div class="print-meta">
+                <span>Период: <b>${dateStartStr} — ${dateEndStr}</b></span>
+                <span>Сформирован: ${generatedStr}</span>
+            </div>
+        </div>
+        
+        <div class="print-stats-grid">
+            <div class="print-stat-card">
+                <div class="print-stat-label">Средний SLA</div>
+                <div class="print-stat-value" style="color: ${summary.avgSla >= 99.5 ? '#166534' : (summary.avgSla >= 98.0 ? '#9a3412' : '#991b1b')}">${summary.avgSla}%</div>
+            </div>
+            <div class="print-stat-card">
+                <div class="print-stat-label">Всего инцидентов</div>
+                <div class="print-stat-value">${summary.totalIncidents}</div>
+            </div>
+            <div class="print-stat-card">
+                <div class="print-stat-label">Ср. время реакции (MTTD)</div>
+                <div class="print-stat-value">${formatDuration(summary.avgMttd)}</div>
+            </div>
+            <div class="print-stat-card">
+                <div class="print-stat-label">Ср. время решения (MTTR)</div>
+                <div class="print-stat-value">${formatDuration(summary.avgMttr)}</div>
+            </div>
+        </div>
+        
+        <div class="print-section-title">Топ-20 проблемных серверов (по SLA)</div>
+        <table class="print-table">
+            <thead>
+                <tr>
+                    <th style="width: 40px; text-align: center;">№</th>
+                    <th>Клиент</th>
+                    <th>Сервер</th>
+                    <th style="width: 100px; text-align: right;">Uptime %</th>
+                    <th style="width: 100px; text-align: center;">Время простоя</th>
+                    <th style="width: 70px; text-align: center;">Сбоев</th>
+                    <th>Комментарий</th>
+                </tr>
+            </thead>
+            <tbody>
+    `;
+    
+    if (top20.length === 0) {
+        html += `<tr><td colspan="7" style="text-align: center;">Нет данных</td></tr>`;
+    } else {
+        top20.forEach((srv, index) => {
+            const slaClass = srv.sla_percent >= 99.5 ? 'good' : (srv.sla_percent >= 98.0 ? 'warn' : 'poor');
+            html += `
+                <tr>
+                    <td style="text-align: center;">${index + 1}</td>
+                    <td><b>${srv.clientName}</b></td>
+                    <td>${srv.name}</td>
+                    <td style="text-align: right;" class="print-sla-badge ${slaClass}">${srv.sla_percent.toFixed(3)}%</td>
+                    <td style="text-align: center;">${formatDuration(srv.downtime_sec)}</td>
+                    <td style="text-align: center;">${srv.incidents_count}</td>
+                    <td style="font-size: 11px; color: #555;">${srv.comment || '-'}</td>
+                </tr>
+            `;
+        });
+    }
+    
+    html += `
+            </tbody>
+        </table>
+        
+        <div class="page-break"></div>
+        
+        <div class="print-section-title" style="margin-top: 0;">Сводная таблица SLA по всем клиентам</div>
+        <table class="print-table">
+            <thead>
+                <tr>
+                    <th>Клиент / Сервер</th>
+                    <th style="width: 100px; text-align: right;">Uptime %</th>
+                    <th style="width: 100px; text-align: center;">Время простоя</th>
+                    <th style="width: 70px; text-align: center;">Сбоев</th>
+                    <th style="width: 100px; text-align: center;">MTTD (Реакция)</th>
+                    <th style="width: 100px; text-align: center;">MTTR (Решение)</th>
+                </tr>
+            </thead>
+            <tbody>
+    `;
+    
+    const clients = Object.keys(reportData).map(name => ({ name, ...reportData[name] }));
+    clients.sort((a, b) => a.name.localeCompare(b.name));
+    
+    clients.forEach(client => {
+        const clientSlaClass = client.sla_percent >= 99.5 ? 'good' : (client.sla_percent >= 98.0 ? 'warn' : 'poor');
+        html += `
+            <tr class="client-group-row">
+                <td><b>${client.name}</b></td>
+                <td style="text-align: right;" class="print-sla-badge ${clientSlaClass}">${client.sla_percent.toFixed(3)}%</td>
+                <td style="text-align: center;">${formatDuration(client.total_downtime_sec)}</td>
+                <td style="text-align: center;">${client.total_incidents_count}</td>
+                <td style="text-align: center;">${formatDuration(client.mttd_avg_sec)}</td>
+                <td style="text-align: center;">${formatDuration(client.mttr_avg_sec)}</td>
+            </tr>
+        `;
+        
+        client.servers.forEach(srv => {
+            const srvSlaClass = srv.sla_percent >= 99.5 ? 'good' : (srv.sla_percent >= 98.0 ? 'warn' : 'poor');
+            html += `
+                <tr>
+                    <td style="padding-left: 20px;">↳ ${srv.name}</td>
+                    <td style="text-align: right;" class="print-sla-badge ${srvSlaClass}">${srv.sla_percent.toFixed(3)}%</td>
+                    <td style="text-align: center;">${formatDuration(srv.downtime_sec)}</td>
+                    <td style="text-align: center;">${srv.incidents_count}</td>
+                    <td style="text-align: center;">${formatDuration(srv.mttd_sec)}</td>
+                    <td style="text-align: center;">${formatDuration(srv.mttr_sec)}</td>
+                </tr>
+            `;
+        });
+    });
+    
+    html += `
+            </tbody>
+        </table>
+    `;
+    
+    container.innerHTML = html;
+}
+
+function formatPrintDate(unixTimestamp) {
+    const d = new Date(unixTimestamp * 1000);
+    return d.toLocaleDateString('ru-RU');
 }

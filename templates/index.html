@@ -188,11 +188,22 @@
                         <h3>Редактировать привязку сервера</h3>
                         <form id="mapping-form">
                             <div class="form-group">
-                                <label for="zabbix-host-select">Сервер Zabbix <span class="required">*</span></label>
-                                <div class="select-wrapper">
-                                    <select id="zabbix-host-select" required>
-                                        <option value="">Выберите сервер...</option>
-                                    </select>
+                                <label>Сервер Zabbix <span class="required">*</span></label>
+                                <div class="custom-select-container" id="zabbix-host-custom-select">
+                                    <div class="custom-select-trigger">
+                                        <span class="custom-select-value">Выберите сервер...</span>
+                                        <i class="fa-solid fa-chevron-down"></i>
+                                    </div>
+                                    <div class="custom-select-dropdown">
+                                        <div class="custom-select-search">
+                                            <i class="fa-solid fa-magnifying-glass"></i>
+                                            <input type="text" placeholder="Поиск сервера..." autocomplete="off">
+                                        </div>
+                                        <div class="custom-select-options">
+                                            <!-- Заполняется динамически -->
+                                        </div>
+                                    </div>
+                                    <input type="hidden" id="zabbix-host-select" required>
                                 </div>
                             </div>
                             
@@ -512,6 +523,9 @@
             </button>
         </div>
     </div>
+
+    <!-- Контейнер для печати PDF-отчетов (скрыт на вебе) -->
+    <div id="print-report-container"></div>
 
     <!-- Нотификации об успехе / ошибке -->
     <div id="toast-container"></div>

@@ -1056,19 +1056,22 @@ body {
     height: 100%;
     background-color: rgba(0,0,0,0.6);
     backdrop-filter: blur(4px);
+    align-items: center;
+    justify-content: center;
 }
 
 .modal-content {
     background-color: var(--bg-modal);
     color: var(--text-primary);
     border: 1px solid var(--border-color);
-    margin: 15% auto;
     padding: 24px;
-    width: 100%;
-    max-width: 400px;
+    width: 90%;
+    max-width: 450px;
     border-radius: 16px;
     box-shadow: 0 10px 25px rgba(0,0,0,0.5);
     position: relative;
+    max-height: 90vh;
+    overflow-y: auto;
 }
 
 .close-modal {
@@ -1629,4 +1632,31 @@ body {
     .page-break {
         page-break-before: always;
     }
+}
+
+/* Адаптивность и горизонтальная прокрутка для таблицы инцидентов */
+.incidents-table-wrapper {
+    width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    border-radius: 8px;
+    background-color: rgba(0, 0, 0, 0.2);
+    border: 1px solid var(--border-inner);
+    margin-top: 8px;
+}
+
+.incidents-table {
+    min-width: 1150px; /* Гарантирует достаточное место под 10 колонок */
+    width: 100%;
+}
+
+.incidents-table td, .incidents-table th {
+    white-space: nowrap;
+    vertical-align: middle;
+}
+
+.incidents-table td:nth-child(2) {
+    white-space: normal; /* Название инцидента может переноситься */
+    min-width: 250px;
+    max-width: 450px;
 }

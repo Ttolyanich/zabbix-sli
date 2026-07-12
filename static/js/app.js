@@ -1267,7 +1267,7 @@ function updateThemeIcon(btn, theme) {
 
 function openEmailModal() {
     const modal = document.getElementById('email-modal');
-    modal.style.display = 'block';
+    modal.style.display = 'flex';
     document.getElementById('modal-email-input').focus();
 }
 
@@ -1302,7 +1302,7 @@ function openCommentModal(eventid, name, time) {
     
     textarea.value = existingComment;
     categorySelect.value = existingCategory;
-    modal.style.display = 'block';
+    modal.style.display = 'flex';
     textarea.focus();
 }
 

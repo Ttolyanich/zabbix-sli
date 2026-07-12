@@ -162,9 +162,10 @@ def generate_excel_report(start_time, end_time):
             s_comm.border = thin_border
             
     # Автоподбор ширины колонок
+    from openpyxl.utils import get_column_letter
     for col in ws.columns:
         max_len = 0
-        col_letter = col[0].column_letter
+        col_letter = get_column_letter(col[0].column)
         for cell in col:
             val = str(cell.value or '')
             if '\n' in val:

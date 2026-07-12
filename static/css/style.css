@@ -83,7 +83,8 @@ body {
     background-color: var(--bg-dark);
     color: var(--text-primary);
     font-family: var(--font-main);
-    overflow-x: hidden;
+    overflow: hidden;
+    height: 100vh;
     background-image: 
         radial-gradient(at 10% 20%, rgba(139, 92, 246, 0.08) 0px, transparent 50%),
         radial-gradient(at 90% 80%, rgba(59, 130, 246, 0.08) 0px, transparent 50%);
@@ -92,7 +93,8 @@ body {
 
 .app-container {
     display: flex;
-    min-height: 100vh;
+    height: 100vh;
+    overflow: hidden;
 }
 
 /* Боковая панель */
@@ -241,7 +243,7 @@ body {
     padding: 32px;
     overflow-y: auto;
     overflow-x: hidden;
-    height: 100vh;
+    height: 100%;
     min-width: 0;
 }
 

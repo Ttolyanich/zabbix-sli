@@ -1660,3 +1660,18 @@ body {
     min-width: 250px;
     max-width: 450px;
 }
+
+/* Прокрутка основного списка клиентов на дашборде */
+.dashboard-table-wrapper {
+    width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    border-radius: 12px;
+    border: 1px solid var(--border-color);
+    background-color: var(--bg-accordion);
+}
+
+.dashboard-table-wrapper .table-container {
+    min-width: 1000px; /* Гарантирует свободное размещение всех колонок */
+    width: 100%;
+}

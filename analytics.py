@@ -154,11 +154,11 @@ def calculate_sli_report(start_time, end_time):
                 is_ignored_by_pattern = True
                 break
                 
-        # Проверяем фильтры исключений
         if is_ignored_by_pattern:
-            # Исключено по текстовому паттерну
-            inc_downtime = 0
-        elif exclude_vpn and inc['is_vpn_issue'] == 1:
+            continue
+            
+        # Проверяем фильтры исключений
+        if exclude_vpn and inc['is_vpn_issue'] == 1:
             # Помечаем в списке, но не считаем простоем
             inc_downtime = 0
         elif inc['is_maintenance'] == 1:
@@ -197,8 +197,6 @@ def calculate_sli_report(start_time, end_time):
         inc_report['downtime_in_period_sec'] = inc_downtime
         inc_report['mttd_sec'] = mttd
         inc_report['mttr_sec'] = mttr
-        if is_ignored_by_pattern:
-            inc_report['is_ignored_by_pattern'] = 1
         srv_data['incidents'].append(inc_report)
         
     # Рассчитываем итоговые проценты по серверам и клиентам

@@ -73,6 +73,14 @@ def calculate_sli_report(start_time, end_time):
         
     exclude_vpn = settings.get('exclude_vpn_issues') == '1'
     
+    # Загружаем неактивные паттерны для исключения из SLA
+    ignored_patterns = []
+    try:
+        patterns = database.get_incident_patterns()
+        ignored_patterns = [p['pattern'].lower() for p in patterns if p['is_incident'] == 0]
+    except Exception as e:
+        print(f"[Analytics] Error loading incident patterns: {str(e)}")
+        
     # Группируем хосты по клиентам
     clients = {}
     host_to_client = {}
@@ -138,8 +146,19 @@ def calculate_sli_report(start_time, end_time):
         if not c_name:
             continue
             
+        # Проверяем, совпадает ли имя инцидента с одним из отключенных паттернов
+        inc_name_lower = inc['name'].lower()
+        is_ignored_by_pattern = False
+        for pat in ignored_patterns:
+            if pat in inc_name_lower:
+                is_ignored_by_pattern = True
+                break
+                
         # Проверяем фильтры исключений
-        if exclude_vpn and inc['is_vpn_issue'] == 1:
+        if is_ignored_by_pattern:
+            # Исключено по текстовому паттерну
+            inc_downtime = 0
+        elif exclude_vpn and inc['is_vpn_issue'] == 1:
             # Помечаем в списке, но не считаем простоем
             inc_downtime = 0
         elif inc['is_maintenance'] == 1:
@@ -178,6 +197,8 @@ def calculate_sli_report(start_time, end_time):
         inc_report['downtime_in_period_sec'] = inc_downtime
         inc_report['mttd_sec'] = mttd
         inc_report['mttr_sec'] = mttr
+        if is_ignored_by_pattern:
+            inc_report['is_ignored_by_pattern'] = 1
         srv_data['incidents'].append(inc_report)
         
     # Рассчитываем итоговые проценты по серверам и клиентам

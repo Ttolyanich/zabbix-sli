@@ -96,6 +96,14 @@ def init_db():
         )
     ''')
     
+    # Таблица паттернов/правил исключения инцидентов
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS incident_patterns (
+            pattern TEXT PRIMARY KEY,
+            is_incident INTEGER NOT NULL DEFAULT 1
+        )
+    ''')
+    
     # Дефолтные настройки
     default_settings = {
         'zabbix_url': '',
@@ -115,7 +123,9 @@ def init_db():
         'working_hours_start': '09:00',
         'working_hours_end': '18:00',
         'working_days': '1,2,3,4,5', # 1=Mon, ..., 7=Sun
-        'exclude_vpn_issues': '0' # Исключать ли короткие инциденты (<1м) из общего SLA
+        'exclude_vpn_issues': '0', # Исключать ли короткие инциденты (<1м) из общего SLA
+        'min_severity': '0',
+        'mapping_mode': 'name_auto'
     }
     
     for key, val in default_settings.items():
@@ -190,14 +200,21 @@ def cache_incidents(incidents_list):
     conn.close()
 
 def get_incidents(start_time, end_time, hostids=None):
+    # Получаем минимальную критичность из настроек
+    settings = get_settings()
+    try:
+        min_severity = int(settings.get('min_severity', '0'))
+    except Exception:
+        min_severity = 0
+
     conn = get_db_connection()
     query = '''
         SELECT i.*, o.category AS overridden_category 
         FROM incidents i
         LEFT JOIN incident_category_overrides o ON i.eventid = o.eventid
-        WHERE i.clock <= ? AND (i.r_clock IS NULL OR i.r_clock >= ?)
+        WHERE i.clock <= ? AND (i.r_clock IS NULL OR i.r_clock >= ?) AND i.severity >= ?
     '''
-    params = [end_time, start_time]
+    params = [end_time, start_time, min_severity]
     
     if hostids:
         placeholders = ','.join('?' for _ in hostids)
@@ -225,6 +242,56 @@ def get_incidents(start_time, end_time, hostids=None):
         result.append(d)
         
     return result
+
+# === Функции управления паттернами и групповых сбоев ===
+
+def auto_discover_patterns():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute('SELECT DISTINCT name FROM incidents')
+    names = [row['name'] for row in cursor.fetchall()]
+    
+    for name in names:
+        cursor.execute('INSERT OR IGNORE INTO incident_patterns (pattern, is_incident) VALUES (?, 1)', (name,))
+    conn.commit()
+    conn.close()
+
+def get_incident_patterns():
+    auto_discover_patterns()
+    conn = get_db_connection()
+    rows = conn.execute('SELECT pattern, is_incident FROM incident_patterns ORDER BY pattern ASC').fetchall()
+    conn.close()
+    return [{'pattern': row['pattern'], 'is_incident': row['is_incident']} for row in rows]
+
+def save_incident_pattern(pattern, is_incident):
+    conn = get_db_connection()
+    conn.execute('INSERT OR REPLACE INTO incident_patterns (pattern, is_incident) VALUES (?, ?)', (pattern, int(is_incident)))
+    conn.commit()
+    conn.close()
+
+def delete_incident_pattern(pattern):
+    conn = get_db_connection()
+    conn.execute('DELETE FROM incident_patterns WHERE pattern = ?', (pattern,))
+    conn.commit()
+    conn.close()
+
+def bulk_save_incident_overrides(eventids, category, comment, username):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        for ev_id in eventids:
+            # Сохраняем категорию
+            cursor.execute('INSERT OR REPLACE INTO incident_category_overrides (eventid, category) VALUES (?, ?)', (ev_id, category))
+            
+            # Сохраняем комментарий (если передан)
+            if comment is not None:
+                cursor.execute('INSERT OR REPLACE INTO incident_comments (eventid, comment, username) VALUES (?, ?, ?)', (ev_id, comment, username))
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        raise e
+    finally:
+        conn.close()
 
 # === Функции авторизации и пользователей ===
 

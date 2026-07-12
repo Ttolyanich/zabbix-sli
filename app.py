@@ -293,6 +293,72 @@ def override_incident_category(eventid):
     database.save_category_override(eventid, category)
     return jsonify({"status": "success", "message": "Категория сбоя успешно изменена"})
 
+@app.route('/api/incidents/bulk-override', methods=['POST'])
+@login_required
+def bulk_override_incidents():
+    data = request.json
+    eventids = data.get('eventids', [])
+    category = data.get('category', 'auto')
+    comment = data.get('comment')
+    
+    if not eventids:
+        return jsonify({"status": "error", "message": "Список инцидентов пуст"}), 400
+        
+    if category not in ['auto', 'server', 'network', 'maintenance']:
+        return jsonify({"status": "error", "message": "Неверная категория"}), 400
+        
+    try:
+        # Если передан пустой комментарий, не сохраняем его в базу
+        if comment is not None:
+            comment = comment.strip()
+            if not comment:
+                comment = None
+                
+        database.bulk_save_incident_overrides(eventids, category, comment, session['username'])
+        return jsonify({"status": "success", "message": f"Массовое изменение применено к {len(eventids)} инцидентам"})
+    except Exception as e:
+        return jsonify({"status": "error", "message": f"Ошибка сохранения: {str(e)}"}), 500
+
+@app.route('/api/incidents/patterns', methods=['GET'])
+@login_required
+def api_get_incident_patterns():
+    try:
+        patterns = database.get_incident_patterns()
+        return jsonify(patterns)
+    except Exception as e:
+        return jsonify({"status": "error", "message": f"Ошибка получения правил: {str(e)}"}), 500
+
+@app.route('/api/incidents/patterns', methods=['POST'])
+@login_required
+def api_update_incident_pattern():
+    data = request.json
+    pattern = data.get('pattern', '').strip()
+    is_incident = data.get('is_incident', 1)
+    
+    if not pattern:
+        return jsonify({"status": "error", "message": "Паттерн не может быть пустым"}), 400
+        
+    try:
+        database.save_incident_pattern(pattern, is_incident)
+        return jsonify({"status": "success", "message": "Правило фильтрации успешно сохранено"})
+    except Exception as e:
+        return jsonify({"status": "error", "message": f"Ошибка сохранения правила: {str(e)}"}), 500
+
+@app.route('/api/incidents/patterns/delete', methods=['POST'])
+@login_required
+def api_delete_incident_pattern():
+    data = request.json
+    pattern = data.get('pattern', '').strip()
+    
+    if not pattern:
+        return jsonify({"status": "error", "message": "Паттерн не может быть пустым"}), 400
+        
+    try:
+        database.delete_incident_pattern(pattern)
+        return jsonify({"status": "success", "message": "Правило фильтрации успешно удалено"})
+    except Exception as e:
+        return jsonify({"status": "error", "message": f"Ошибка удаления правила: {str(e)}"}), 500
+
 @app.route('/api/profile/change-password', methods=['POST'])
 @login_required
 def change_password():

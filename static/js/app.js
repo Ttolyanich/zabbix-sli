@@ -8,6 +8,7 @@ let customStartTs = null;
 let customEndTs = null;
 let sortColumn = 'name';
 let sortDirection = 'asc';
+let selectedIncidentEventIds = new Set();
 
 // Инициализация при загрузке страницы
 document.addEventListener('DOMContentLoaded', () => {
@@ -513,6 +514,7 @@ function renderClientServers(client, container) {
                         <table class="incidents-table">
                             <thead>
                                 <tr>
+                                    <th style="width: 30px; text-align: center;"><input type="checkbox" class="select-all-incidents-checkbox"></th>
                                     <th>Инцидент</th>
                                     <th>Критичность</th>
                                     <th>Начало</th>
@@ -540,7 +542,27 @@ function renderClientServers(client, container) {
             serverItem.classList.toggle('open');
             
             if (!isOpen) {
-                renderServerIncidents(srv, serverItem.querySelector('.incidents-table tbody'));
+                const tbodyEl = serverItem.querySelector('.incidents-table tbody');
+                renderServerIncidents(srv, tbodyEl);
+                
+                // Обработчик "Выбрать все" для конкретной таблицы сервера
+                const selectAllCheckbox = serverItem.querySelector('.select-all-incidents-checkbox');
+                if (selectAllCheckbox) {
+                    selectAllCheckbox.checked = false;
+                    selectAllCheckbox.addEventListener('change', (evt) => {
+                        const checkboxes = tbodyEl.querySelectorAll('.incident-select-checkbox');
+                        checkboxes.forEach(cb => {
+                            cb.checked = evt.target.checked;
+                            const evId = cb.getAttribute('data-eventid');
+                            if (evt.target.checked) {
+                                selectedIncidentEventIds.add(evId);
+                            } else {
+                                selectedIncidentEventIds.delete(evId);
+                            }
+                        });
+                        updateBulkActionsPanel();
+                    });
+                }
             }
         });
         
@@ -552,7 +574,7 @@ function renderServerIncidents(srv, tbody) {
     tbody.innerHTML = '';
     
     if (srv.incidents.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="9" class="text-center" style="color: var(--text-muted);">За выбранный период инцидентов не зафиксировано</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="10" class="text-center" style="color: var(--text-muted);">За выбранный период инцидентов не зафиксировано</td></tr>`;
         return;
     }
     
@@ -596,14 +618,20 @@ function renderServerIncidents(srv, tbody) {
                     </div>
                 ` : '<span style="color: var(--text-muted); font-style: italic; font-size: 11px;">Нет</span>'}
                 <button class="edit-comment-btn" data-eventid="${inc.eventid}" data-name="${inc.name}" data-time="${inc.clock}" title="Добавить/Редактировать комментарий">
-                    <i class="fa-solid fa-comment-medical"></i>
+                     <i class="fa-solid fa-comment-medical"></i>
                 </button>
             </div>
         `;
         
         const tr = document.createElement('tr');
         tr.innerHTML = `
-            <td><b>${inc.name}</b></td>
+            <td style="text-align: center;">
+                <input type="checkbox" class="incident-select-checkbox" data-eventid="${inc.eventid}">
+            </td>
+            <td>
+                <b>${inc.name}</b>
+                ${inc.is_ignored_by_pattern ? `<span class="ignored-label-badge" title="Исключен из SLA по правилу фильтрации"><i class="fa-solid fa-filter"></i> Исключен</span>` : ''}
+            </td>
             <td>
                 <span class="severity-indicator">
                     <span class="severity-dot sev-${inc.severity}"></span>
@@ -618,6 +646,25 @@ function renderServerIncidents(srv, tbody) {
             <td>${formatDuration(inc.mttr_sec)}</td>
             <td>${commentCellHtml}</td>
         `;
+        
+        // Восстанавливаем состояние чекбокса, если событие уже выбрано в глобальном списке
+        const checkbox = tr.querySelector('.incident-select-checkbox');
+        if (selectedIncidentEventIds.has(inc.eventid)) {
+            checkbox.checked = true;
+        }
+        
+        // Слушаем изменение чекбокса
+        checkbox.addEventListener('change', (e) => {
+            if (e.target.checked) {
+                selectedIncidentEventIds.add(inc.eventid);
+            } else {
+                selectedIncidentEventIds.delete(inc.eventid);
+                // Снимаем галочку "выбрать все" в шапке этой таблицы
+                const selectAll = tbody.closest('.incidents-table').querySelector('.select-all-incidents-checkbox');
+                if (selectAll) selectAll.checked = false;
+            }
+            updateBulkActionsPanel();
+        });
         
         // Навешиваем событие клика на кнопку комментария
         const editBtn = tr.querySelector('.edit-comment-btn');
@@ -866,6 +913,9 @@ async function loadSettings() {
                 }
             }
         }
+        
+        // Загружаем правила фильтрации
+        loadIncidentPatterns();
     } catch (e) {
         showToast('Ошибка при загрузке настроек', 'error');
     }
@@ -1179,6 +1229,9 @@ function initEventHandlers() {
             }
         });
     }
+    
+    // Инициализация групповых сбоев и паттернов исключений
+    initBulkActionsAndPatterns();
 }
 
 function initTheme() {
@@ -1522,4 +1575,247 @@ function updatePrintReport(reportData, summary) {
 function formatPrintDate(unixTimestamp) {
     const d = new Date(unixTimestamp * 1000);
     return d.toLocaleDateString('ru-RU');
+}
+
+// === Логика групповых сбоев и паттернов ===
+
+function initBulkActionsAndPatterns() {
+    // 1. Кнопка сброса выбора в плавающей панели
+    const clearBtn = document.getElementById('bulk-clear-btn');
+    if (clearBtn) {
+        clearBtn.addEventListener('click', () => {
+            selectedIncidentEventIds.clear();
+            document.querySelectorAll('.incident-select-checkbox').forEach(cb => cb.checked = false);
+            document.querySelectorAll('.select-all-incidents-checkbox').forEach(cb => cb.checked = false);
+            updateBulkActionsPanel();
+        });
+    }
+
+    // 2. Кнопка "Изменить выбранные" в плавающей панели
+    const editBtn = document.getElementById('bulk-edit-btn');
+    const bulkModal = document.getElementById('bulk-comment-modal');
+    if (editBtn && bulkModal) {
+        editBtn.addEventListener('click', () => {
+            const count = selectedIncidentEventIds.size;
+            document.getElementById('bulk-comment-modal-details').innerText = 
+                `Будет изменено сбоев: ${count}. Вы можете переопределить их категорию и/или задать общий комментарий.`;
+            
+            document.getElementById('modal-bulk-category').value = 'auto';
+            document.getElementById('modal-bulk-textarea').value = '';
+            bulkModal.style.display = 'flex';
+        });
+    }
+
+    // 3. Закрытие модального окна массового редактирования
+    const closeBulkModal = document.getElementById('close-bulk-comment-modal');
+    if (closeBulkModal && bulkModal) {
+        closeBulkModal.addEventListener('click', () => {
+            bulkModal.style.display = 'none';
+        });
+    }
+    window.addEventListener('click', (e) => {
+        if (e.target === bulkModal) {
+            bulkModal.style.display = 'none';
+        }
+    });
+
+    // 4. Кнопка сохранения в модальном окне массового редактирования
+    const saveBulkBtn = document.getElementById('modal-save-bulk-btn');
+    if (saveBulkBtn && bulkModal) {
+        saveBulkBtn.addEventListener('click', async () => {
+            const category = document.getElementById('modal-bulk-category').value;
+            const comment = document.getElementById('modal-bulk-textarea').value.trim();
+            const eventids = Array.from(selectedIncidentEventIds);
+
+            if (eventids.length === 0) {
+                showToast('Нет выбранных инцидентов', 'error');
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/incidents/bulk-override', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ eventids, category, comment })
+                });
+                const result = await response.json();
+
+                if (response.ok) {
+                    showToast(result.message || 'Массовые изменения успешно применены');
+                    bulkModal.style.display = 'none';
+                    selectedIncidentEventIds.clear();
+                    updateBulkActionsPanel();
+                    loadDashboardData(); // Обновляем дашборд
+                } else {
+                    showToast(result.message || 'Ошибка сохранения', 'error');
+                }
+            } catch (err) {
+                showToast('Ошибка сети при сохранении изменений', 'error');
+            }
+        });
+    }
+
+    // 5. Поиск по правилам фильтрации паттернов
+    const searchInput = document.getElementById('patterns-search');
+    if (searchInput) {
+        searchInput.addEventListener('input', (e) => {
+            const query = e.target.value.toLowerCase();
+            const rows = document.querySelectorAll('#patterns-table-body tr');
+            rows.forEach(row => {
+                const text = row.innerText.toLowerCase();
+                if (text.includes(query)) {
+                    row.style.display = '';
+                } else {
+                    row.style.display = 'none';
+                }
+            });
+        });
+    }
+
+    // 6. Добавление пользовательского паттерна в настройках
+    const addPatternBtn = document.getElementById('add-pattern-btn');
+    if (addPatternBtn) {
+        addPatternBtn.addEventListener('click', async () => {
+            const input = document.getElementById('new-pattern-input');
+            const pattern = input.value.trim();
+
+            if (!pattern) {
+                showToast('Введите подстроку правила', 'error');
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/incidents/patterns', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ pattern, is_incident: 1 })
+                });
+                const result = await response.json();
+
+                if (response.ok) {
+                    showToast('Правило успешно добавлено!');
+                    input.value = '';
+                    loadIncidentPatterns();
+                    loadDashboardData(); // Сразу пересчитываем SLA на дашборде
+                } else {
+                    showToast(result.message || 'Ошибка добавления правила', 'error');
+                }
+            } catch (err) {
+                showToast('Ошибка соединения', 'error');
+            }
+        });
+    }
+}
+
+function updateBulkActionsPanel() {
+    const panel = document.getElementById('bulk-actions-panel');
+    const counter = document.getElementById('bulk-selected-counter');
+    if (!panel || !counter) return;
+
+    const count = selectedIncidentEventIds.size;
+    if (count > 0) {
+        counter.innerText = count;
+        panel.classList.add('show');
+    } else {
+        panel.classList.remove('show');
+    }
+}
+
+// Загрузка и вывод правил фильтрации паттернов
+async function loadIncidentPatterns() {
+    const tbody = document.getElementById('patterns-table-body');
+    if (!tbody) return;
+
+    try {
+        const response = await fetch('/api/incidents/patterns');
+        const patterns = await response.json();
+
+        tbody.innerHTML = '';
+        if (patterns.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="3" class="text-center" style="color: var(--text-muted);">Правил фильтрации нет. Список заполнится автоматически при появлении инцидентов.</td></tr>';
+            return;
+        }
+
+        patterns.forEach(p => {
+            const tr = document.createElement('tr');
+            
+            const isChecked = p.is_incident === 1 ? 'checked' : '';
+
+            tr.innerHTML = `
+                <td style="text-align: center;">
+                    <label class="checkbox-container" style="margin: 0; display: inline-block;">
+                        <input type="checkbox" class="pattern-status-checkbox" data-pattern="${p.pattern}" ${isChecked}>
+                        <span class="checkmark"></span>
+                    </label>
+                </td>
+                <td><code style="font-family: monospace; font-size: 13px; font-weight: 600; color: var(--text-primary);">${p.pattern}</code></td>
+                <td style="text-align: center;">
+                    <button type="button" class="pattern-delete-btn" data-pattern="${p.pattern}" title="Удалить правило">
+                        <i class="fa-solid fa-trash-can"></i>
+                    </button>
+                </td>
+            `;
+
+            // Обработчик переключения галочки "учитывать в SLA"
+            const checkbox = tr.querySelector('.pattern-status-checkbox');
+            checkbox.addEventListener('change', async (e) => {
+                const is_incident = e.target.checked ? 1 : 0;
+                try {
+                    const res = await fetch('/api/incidents/patterns', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ pattern: p.pattern, is_incident })
+                    });
+                    if (res.ok) {
+                        showToast('Правило фильтрации обновлено');
+                        loadDashboardData(); // Обновляем Uptime на дашборде
+                    } else {
+                        showToast('Не удалось обновить правило', 'error');
+                        e.target.checked = !e.target.checked; // откат
+                    }
+                } catch (err) {
+                    showToast('Ошибка сети', 'error');
+                    e.target.checked = !e.target.checked;
+                }
+            });
+
+            // Обработчик удаления правила
+            const deleteBtn = tr.querySelector('.pattern-delete-btn');
+            deleteBtn.addEventListener('click', async () => {
+                if (confirm(`Вы уверены, что хотите удалить правило "${p.pattern}"?`)) {
+                    try {
+                        const res = await fetch('/api/incidents/patterns/delete', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ pattern: p.pattern })
+                        });
+                        if (res.ok) {
+                            showToast('Правило удалено');
+                            loadIncidentPatterns();
+                            loadDashboardData(); // Обновляем Uptime на дашборде
+                        } else {
+                            showToast('Не удалось удалить правило', 'error');
+                        }
+                    } catch (err) {
+                        showToast('Ошибка соединения', 'error');
+                    }
+                }
+            });
+
+            tbody.appendChild(tr);
+        });
+
+        // Применяем фильтр поиска (если в строке поиска что-то введено)
+        const searchInput = document.getElementById('patterns-search');
+        if (searchInput && searchInput.value) {
+            const query = searchInput.value.toLowerCase();
+            tbody.querySelectorAll('tr').forEach(row => {
+                const text = row.innerText.toLowerCase();
+                row.style.display = text.includes(query) ? '' : 'none';
+            });
+        }
+
+    } catch (e) {
+        tbody.innerHTML = '<tr><td colspan="3" class="text-center text-danger">Не удалось загрузить список правил фильтрации</td></tr>';
+    }
 }

@@ -68,25 +68,61 @@ def sync_zabbix_data():
         zbx_hosts = api.get_hosts()
         print(f"[Scheduler] Found {len(zbx_hosts)} monitored hosts in Zabbix.")
         
+        # Получаем текущий режим маппинга
+        mapping_mode = settings.get('mapping_mode', 'name_auto')
+        
+        # Системные группы хостов Zabbix для исключения при автогруппировке
+        SYSTEM_GROUPS = [
+            'templates', 'linux servers', 'windows servers', 'zabbix servers', 
+            'virtual machines', 'hypervisors', 'discovered hosts', 'web servers', 
+            'database servers', 'network devices', 'printers', 'storage devices',
+            'discovered', 'hypervisor'
+        ]
+        
         # 2. Сопоставляем и сохраняем хосты в локальной базе данных
         current_mappings = {m['zabbix_hostid']: m for m in database.get_mappings()}
         
         for zh in zbx_hosts:
             h_id = zh['hostid']
             h_name = zh['name']
-            auto_client = auto_detect_client(zh)
+            
+            if mapping_mode == 'group_auto':
+                # Маппинг по несистемным Host Groups в Zabbix
+                client_name = 'не указано'
+                groups = zh.get('groups', [])
+                for g in groups:
+                    g_name = g.get('name', '')
+                    g_name_lower = g_name.lower()
+                    
+                    is_system = False
+                    for sys_g in SYSTEM_GROUPS:
+                        if sys_g in g_name_lower:
+                            is_system = True
+                            break
+                            
+                    if not is_system and g_name:
+                        client_name = g_name
+                        break
+                is_manual = 0
+            else:
+                # Определение по имени хоста
+                client_name = auto_detect_client(zh)
+                is_manual = 0
             
             if h_id in current_mappings:
                 db_map = current_mappings[h_id]
-                # Если привязка не ручная (is_manual=0), обновляем автоопределенного клиента
-                if db_map.get('is_manual', 0) == 0:
-                    database.save_mapping(h_id, h_name, auto_client, db_map['comment'] or '', 0)
+                if mapping_mode == 'group_auto':
+                    # В режиме полного автомата перезаписываем клиента
+                    database.save_mapping(h_id, h_name, client_name, db_map['comment'] or '', 0)
                 else:
-                    # Если ручная, сохраняем пользовательское имя, но обновляем имя хоста
-                    database.save_mapping(h_id, h_name, db_map['client_name'], db_map['comment'] or '', 1)
+                    # В гибридном режиме ручные правки в приоритете
+                    if db_map.get('is_manual', 0) == 0:
+                        database.save_mapping(h_id, h_name, client_name, db_map['comment'] or '', 0)
+                    else:
+                        database.save_mapping(h_id, h_name, db_map['client_name'], db_map['comment'] or '', 1)
             else:
-                # Абсолютно новый хост в системе (автоопределение клиента)
-                database.save_mapping(h_id, h_name, auto_client, '', 0)
+                # Абсолютно новый хост в системе
+                database.save_mapping(h_id, h_name, client_name, '', is_manual)
                 
         # 3. Загружаем актуальные привязки хостов из БД для сбора инцидентов
         mappings = database.get_mappings()

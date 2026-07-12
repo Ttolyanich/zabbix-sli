@@ -384,6 +384,66 @@
                                     Исключать сбои &lt; 1 мин (проблемы сети/VPN) из общего SLA
                                 </label>
                             </div>
+                            
+                            <div class="form-group" style="margin-top: 15px;">
+                                <label for="mapping_mode">Режим сопоставления клиентов</label>
+                                <div class="select-wrapper">
+                                    <select id="mapping_mode">
+                                        <option value="name_auto">По имени хоста (+ ручные правки)</option>
+                                        <option value="group_auto">По группам хостов Zabbix (Полный автомат)</option>
+                                    </select>
+                                </div>
+                            </div>
+                            
+                            <div class="form-group" style="margin-top: 15px;">
+                                <label for="min_severity">Минимальная критичность триггеров для SLA</label>
+                                <div class="select-wrapper">
+                                    <select id="min_severity">
+                                        <option value="0">Все события (Not classified и выше)</option>
+                                        <option value="1">Information и выше</option>
+                                        <option value="2">Warning и выше</option>
+                                        <option value="3">Average и выше</option>
+                                        <option value="4">High и выше</option>
+                                        <option value="5">Disaster (Только критические сбои)</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Фильтрация триггеров (SLA) -->
+                        <div class="card" style="grid-column: span 2;">
+                            <div class="card-header-icon logic-color" style="background: linear-gradient(135deg, #f59e0b, #d97706);"><i class="fa-solid fa-filter"></i></div>
+                            <h3>Фильтрация триггеров (Исключение из SLA)</h3>
+                            <p style="color: var(--text-muted); font-size: 13px; margin-bottom: 15px;">
+                                Вы можете отключить определенные типы триггеров (например, высокая загрузка диска/CPU), чтобы они не считались простоем и не уменьшали общий SLA доступности.
+                            </p>
+                            
+                            <div class="form-group" style="display: flex; gap: 10px;">
+                                <input type="text" id="new-pattern-input" placeholder="Введите паттерн/подстроку триггера (например: Disk read request)">
+                                <button type="button" class="save-settings-btn" id="add-pattern-btn" style="white-space: nowrap; margin-top: 0; width: auto; padding: 10px 20px;">
+                                    <i class="fa-solid fa-plus"></i> Добавить правило
+                                </button>
+                            </div>
+                            
+                            <div class="form-group" style="margin-top: 15px;">
+                                <label for="patterns-search">Поиск по правилам</label>
+                                <input type="text" id="patterns-search" placeholder="Поиск по имени триггера...">
+                            </div>
+                            
+                            <div class="table-container" style="max-height: 250px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 8px; margin-top: 10px;">
+                                <table class="incidents-table" id="patterns-table">
+                                    <thead>
+                                        <tr>
+                                            <th style="width: 50px; text-align: center;">Учитывать</th>
+                                            <th>Паттерн / Имя триггера Zabbix</th>
+                                            <th style="width: 80px; text-align: center;">Действие</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="patterns-table-body">
+                                        <!-- Заполняется динамически -->
+                                    </tbody>
+                                </table>
+                            </div>
                         </div>
 
                         <!-- Смена пароля -->
@@ -521,6 +581,50 @@
             <button type="button" class="submit-btn" id="modal-save-comment-btn" style="margin-top: 15px; width: 100%;">
                 <i class="fa-solid fa-save"></i> Сохранить комментарий
             </button>
+        </div>
+    </div>
+
+    <!-- Модальное окно группового редактирования комментариев и категорий -->
+    <div id="bulk-comment-modal" class="modal">
+        <div class="modal-content">
+            <span class="close-modal" id="close-bulk-comment-modal">&times;</span>
+            <h3>Групповое изменение инцидентов</h3>
+            <p id="bulk-comment-modal-details" style="font-size: 12px; color: var(--text-secondary); margin-top: 8px; line-height: 1.4;"></p>
+            
+            <div class="form-group" style="margin-top: 15px;">
+                <label for="modal-bulk-category">Категория сбоя для всех выбранных</label>
+                <div class="select-wrapper">
+                    <select id="modal-bulk-category">
+                        <option value="auto">Автоматически (определять по Zabbix)</option>
+                        <option value="server">Сбой ПО / Сервера (учитывать в SLA)</option>
+                        <option value="network">Сеть / VPN (исключать из SLA при настроенном лимите)</option>
+                        <option value="maintenance">Обслуживание (не считать простоем)</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="form-group" style="margin-top: 15px;">
+                <label for="modal-bulk-textarea">Описание причины сбоя / Проделанные работы (необязательно)</label>
+                <textarea id="modal-bulk-textarea" placeholder="Оставьте пустым, чтобы не перезаписывать существующие комментарии выбранных инцидентов, или напишите общий комментарий." style="width: 100%; height: 100px; box-sizing: border-box; background: var(--bg-input); border: 1px solid var(--border-color); border-radius: 8px; color: var(--text-input); padding: 10px; outline: none; resize: vertical; margin-top: 5px;"></textarea>
+            </div>
+            <button type="button" class="submit-btn" id="modal-save-bulk-btn" style="margin-top: 15px; width: 100%;">
+                <i class="fa-solid fa-save"></i> Применить к выбранным
+            </button>
+        </div>
+    </div>
+
+    <!-- Плавающая панель массовых действий -->
+    <div id="bulk-actions-panel" class="bulk-floating-panel">
+        <div class="bulk-panel-content">
+            <span class="bulk-selected-count">Выбрано инцидентов: <b id="bulk-selected-counter">0</b></span>
+            <div class="bulk-panel-buttons">
+                <button type="button" class="bulk-btn primary" id="bulk-edit-btn">
+                    <i class="fa-solid fa-pen-to-square"></i> Изменить выбранные
+                </button>
+                <button type="button" class="bulk-btn secondary" id="bulk-clear-btn">
+                    <i class="fa-solid fa-xmark"></i> Сбросить выбор
+                </button>
+            </div>
         </div>
     </div>
 

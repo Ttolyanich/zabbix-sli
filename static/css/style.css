@@ -568,7 +568,8 @@ body {
 
 .accordion-item.open > .accordion-content,
 .server-accordion.open > .accordion-content {
-    max-height: 2000px; /* Достаточно большое число */
+    max-height: none;
+    overflow: visible;
 }
 
 /* Сервер вложенная строка */

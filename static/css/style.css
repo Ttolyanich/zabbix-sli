@@ -1376,7 +1376,7 @@ body {
 
 @media print {
     /* Скрываем весь стандартный интерфейс */
-    .dashboard-container, #toast-container, .modal, #theme-toggle-btn {
+    .app-container, #toast-container, .modal, #theme-toggle-btn {
         display: none !important;
     }
     

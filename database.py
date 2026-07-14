@@ -125,7 +125,8 @@ def init_db():
         'working_days': '1,2,3,4,5', # 1=Mon, ..., 7=Sun
         'exclude_vpn_issues': '0', # Исключать ли короткие инциденты (<1м) из общего SLA
         'min_severity': '0',
-        'mapping_mode': 'name_auto'
+        'mapping_mode': 'name_auto',
+        'ignored_host_groups': 'templates, linux servers, windows servers, zabbix servers, virtual machines, hypervisors, discovered hosts, web servers, database servers, network devices, printers, storage devices, discovered, hypervisor'
     }
     
     for key, val in default_settings.items():

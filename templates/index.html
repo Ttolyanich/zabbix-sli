@@ -397,6 +397,14 @@
                                 </div>
                             </div>
                             
+                            <div class="form-group" id="ignored_host_groups_container" style="margin-top: 15px;">
+                                <label for="ignored_host_groups">Исключаемые группы хостов Zabbix (через запятую)</label>
+                                <textarea id="ignored_host_groups" placeholder="Например: templates, linux servers, windows servers" style="width: 100%; height: 80px; box-sizing: border-box; background: var(--bg-input); border: 1px solid var(--border-color); border-radius: 8px; color: var(--text-input); padding: 10px; outline: none; resize: vertical; margin-top: 5px;"></textarea>
+                                <p style="color: var(--text-muted); font-size: 11px; margin-top: 4px; line-height: 1.4;">
+                                    Укажите через запятую группы хостов, которые нужно игнорировать при автоматической привязке по группам (шаблоны, общие группы ОС и т.д.).
+                                </p>
+                            </div>
+                            
                             <div class="form-group" style="margin-top: 15px;">
                                 <label for="min_severity">Минимальная критичность триггеров для SLA</label>
                                 <div class="select-wrapper">

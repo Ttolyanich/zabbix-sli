@@ -896,6 +896,18 @@ document.getElementById('mapping-form').addEventListener('submit', async (e) => 
     }
 });
 
+function toggleIgnoredGroupsField() {
+    const mappingModeEl = document.getElementById('mapping_mode');
+    const container = document.getElementById('ignored_host_groups_container');
+    if (mappingModeEl && container) {
+        if (mappingModeEl.value === 'group_auto') {
+            container.style.display = 'block';
+        } else {
+            container.style.display = 'none';
+        }
+    }
+}
+
 // === Настройки (Settings) ===
 async function loadSettings() {
     try {
@@ -913,6 +925,9 @@ async function loadSettings() {
                 }
             }
         }
+        
+        // Управляем видимостью списка исключаемых групп
+        toggleIgnoredGroupsField();
         
         // Загружаем правила фильтрации
         loadIncidentPatterns();
@@ -959,6 +974,12 @@ document.getElementById('settings-form').addEventListener('submit', async (e) =>
 
 // === Тесты и Синхронизация ===
 function initEventHandlers() {
+    // Отслеживание смены режима сопоставления клиентов
+    const mappingModeEl = document.getElementById('mapping_mode');
+    if (mappingModeEl) {
+        mappingModeEl.addEventListener('change', toggleIgnoredGroupsField);
+    }
+
     // Кнопка ручной синхронизации в сайдбаре
     const manualSyncBtn = document.getElementById('manual-sync-btn');
     const syncStatusEl = document.getElementById('sync-status');

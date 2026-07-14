@@ -71,13 +71,9 @@ def sync_zabbix_data():
         # Получаем текущий режим маппинга
         mapping_mode = settings.get('mapping_mode', 'name_auto')
         
-        # Системные группы хостов Zabbix для исключения при автогруппировке
-        SYSTEM_GROUPS = [
-            'templates', 'linux servers', 'windows servers', 'zabbix servers', 
-            'virtual machines', 'hypervisors', 'discovered hosts', 'web servers', 
-            'database servers', 'network devices', 'printers', 'storage devices',
-            'discovered', 'hypervisor'
-        ]
+        # Системные группы хостов Zabbix для исключения при автогруппировке (подгружаем динамически)
+        ignored_groups_str = settings.get('ignored_host_groups', '')
+        system_groups = [g.strip().lower() for g in ignored_groups_str.split(',') if g.strip()]
         
         # 2. Сопоставляем и сохраняем хосты в локальной базе данных
         current_mappings = {m['zabbix_hostid']: m for m in database.get_mappings()}
@@ -95,7 +91,7 @@ def sync_zabbix_data():
                     g_name_lower = g_name.lower()
                     
                     is_system = False
-                    for sys_g in SYSTEM_GROUPS:
+                    for sys_g in system_groups:
                         if sys_g in g_name_lower:
                             is_system = True
                             break

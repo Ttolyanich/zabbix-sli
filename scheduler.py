@@ -92,7 +92,7 @@ def sync_zabbix_data():
                     
                     is_system = False
                     for sys_g in system_groups:
-                        if sys_g in g_name_lower:
+                        if re.search(rf'\b{re.escape(sys_g)}\b', g_name_lower):
                             is_system = True
                             break
                             

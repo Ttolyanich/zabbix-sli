@@ -169,6 +169,18 @@ def delete_mapping(zabbix_hostid):
     conn.commit()
     conn.close()
 
+def delete_host_data(zabbix_hostid):
+    conn = get_db_connection()
+    event_ids = [r['eventid'] for r in conn.execute('SELECT eventid FROM incidents WHERE hostid = ?', (zabbix_hostid,)).fetchall()]
+    if event_ids:
+        placeholders = ','.join('?' for _ in event_ids)
+        conn.execute(f'DELETE FROM incident_comments WHERE eventid IN ({placeholders})', event_ids)
+        conn.execute(f'DELETE FROM incident_category_overrides WHERE eventid IN ({placeholders})', event_ids)
+    conn.execute('DELETE FROM server_mappings WHERE zabbix_hostid = ?', (zabbix_hostid,))
+    conn.execute('DELETE FROM incidents WHERE hostid = ?', (zabbix_hostid,))
+    conn.commit()
+    conn.close()
+
 def cache_incidents(incidents_list):
     conn = get_db_connection()
     for inc in incidents_list:

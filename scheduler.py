@@ -120,6 +120,14 @@ def sync_zabbix_data():
                 # Абсолютно новый хост в системе
                 database.save_mapping(h_id, h_name, client_name, '', is_manual)
                 
+        # Автоматическая очистка хостов, которые были удалены или деактивированы в Zabbix
+        active_hostids = {zh['hostid'] for zh in zbx_hosts}
+        deleted_hostids = set(current_mappings.keys()) - active_hostids
+        if deleted_hostids:
+            print(f"[Scheduler] Found {len(deleted_hostids)} deactivated or deleted hosts in Zabbix. Cleaning up...")
+            for del_id in deleted_hostids:
+                database.delete_host_data(del_id)
+                
         # 3. Загружаем актуальные привязки хостов из БД для сбора инцидентов
         mappings = database.get_mappings()
         hostids = [m['zabbix_hostid'] for m in mappings]

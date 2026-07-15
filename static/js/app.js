@@ -196,8 +196,13 @@ function getPeriodTimestamps() {
 async function loadDashboardData() {
     const { startTs, endTs } = getPeriodTimestamps();
     const listContainer = document.getElementById('clients-accordion-list');
-    listContainer.innerHTML = '<div class="empty-state"><i class="fa-solid fa-spinner fa-spin"></i> Вычисление SLI метрик...</div>';
-    
+    // Спиннер показываем только при первой загрузке: при обновлении данных
+    // (комментарий, категория, синхронизация) список не сбрасывается,
+    // renderAccordion сам сохранит раскрытые элементы и скролл
+    if (!listContainer.querySelector('.accordion-item')) {
+        listContainer.innerHTML = '<div class="empty-state"><i class="fa-solid fa-spinner fa-spin"></i> Вычисление SLI метрик...</div>';
+    }
+
     try {
         const response = await fetch(`/api/report?start_time=${startTs}&end_time=${endTs}`);
         const data = await response.json();
@@ -407,10 +412,25 @@ function initSortHeaders() {
     });
 }
 
+let _restoreOpenServers = null;
+
 function renderAccordion(reportData) {
     const listContainer = document.getElementById('clients-accordion-list');
+
+    // Запоминаем раскрытые элементы и скролл, чтобы обновление данных не "передергивало" страницу
+    const openClients = new Set(
+        [...listContainer.querySelectorAll('.accordion-item.open > .accordion-trigger .col-name')].map(el => el.textContent)
+    );
+    _restoreOpenServers = new Set(
+        [...listContainer.querySelectorAll('.server-accordion.open .server-row')].map(el => el.getAttribute('data-hostid'))
+    );
+    const scrollTops = [
+        [document.scrollingElement, document.scrollingElement ? document.scrollingElement.scrollTop : 0],
+        [document.querySelector('.main-content'), document.querySelector('.main-content')?.scrollTop || 0]
+    ];
+
     listContainer.innerHTML = '';
-    
+
     // Преобразуем объект в массив для сортировки
     const clients = Object.keys(reportData).map(name => ({
         name: name,
@@ -473,13 +493,40 @@ function renderAccordion(reportData) {
         trigger.addEventListener('click', () => {
             const isOpen = clientItem.classList.contains('open');
             clientItem.classList.toggle('open');
-            
+
             if (!isOpen) {
                 renderClientServers(client, clientItem.querySelector('.servers-list'));
             }
         });
-        
+
+        // Восстанавливаем раскрытое состояние после перерисовки
+        if (openClients.has(clientName)) {
+            clientItem.classList.add('open');
+            renderClientServers(client, clientItem.querySelector('.servers-list'));
+        }
+
         listContainer.appendChild(clientItem);
+    });
+
+    _restoreOpenServers = null;
+    applyDashboardFilter();
+    scrollTops.forEach(([el, top]) => { if (el) el.scrollTop = top; });
+}
+
+function applyDashboardFilter() {
+    const input = document.getElementById('dashboard-search');
+    const q = (input ? input.value : '').trim().toLowerCase();
+
+    document.querySelectorAll('#clients-accordion-list .accordion-item').forEach(item => {
+        const clientName = item.querySelector('.accordion-trigger .col-name').textContent;
+        let match = !q || clientName.toLowerCase().includes(q);
+
+        // Ищем и по именам серверов клиента
+        if (!match && currentReportData && currentReportData[clientName]) {
+            match = currentReportData[clientName].servers.some(s => s.name.toLowerCase().includes(q));
+        }
+
+        item.style.display = match ? '' : 'none';
     });
 }
 
@@ -535,16 +582,10 @@ function renderClientServers(client, container) {
             </div>
         `;
         
-        const srvRow = serverItem.querySelector('.server-row');
-        srvRow.addEventListener('click', (e) => {
-            e.stopPropagation();
-            const isOpen = serverItem.classList.contains('open');
-            serverItem.classList.toggle('open');
-            
-            if (!isOpen) {
+        const expandServer = () => {
                 const tbodyEl = serverItem.querySelector('.incidents-table tbody');
                 renderServerIncidents(srv, tbodyEl);
-                
+
                 // Обработчик "Выбрать все" для конкретной таблицы сервера
                 const selectAllCheckbox = serverItem.querySelector('.select-all-incidents-checkbox');
                 if (selectAllCheckbox) {
@@ -563,9 +604,25 @@ function renderClientServers(client, container) {
                         updateBulkActionsPanel();
                     });
                 }
+        };
+
+        const srvRow = serverItem.querySelector('.server-row');
+        srvRow.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const isOpen = serverItem.classList.contains('open');
+            serverItem.classList.toggle('open');
+
+            if (!isOpen) {
+                expandServer();
             }
         });
-        
+
+        // Восстанавливаем раскрытый журнал сервера после перерисовки
+        if (_restoreOpenServers && _restoreOpenServers.has(String(srv.hostid))) {
+            serverItem.classList.add('open');
+            expandServer();
+        }
+
         container.appendChild(serverItem);
     });
 }
@@ -934,6 +991,12 @@ async function loadSettings() {
     } catch (e) {
         showToast('Ошибка при загрузке настроек', 'error');
     }
+}
+
+// Поиск по клиентам и серверам на дашборде
+const _dashboardSearchInput = document.getElementById('dashboard-search');
+if (_dashboardSearchInput) {
+    _dashboardSearchInput.addEventListener('input', applyDashboardFilter);
 }
 
 document.getElementById('settings-form').addEventListener('submit', async (e) => {

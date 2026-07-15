@@ -149,6 +149,10 @@
                 <div class="data-section card">
                     <div class="data-header">
                         <h3>Отчет по клиентам</h3>
+                        <div style="position: relative; flex: 1; max-width: 320px; margin: 0 15px;">
+                            <i class="fa-solid fa-magnifying-glass" style="position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: var(--text-muted); font-size: 12px;"></i>
+                            <input type="text" id="dashboard-search" placeholder="Поиск клиента или сервера..." autocomplete="off" style="width: 100%; box-sizing: border-box; padding: 8px 12px 8px 32px; background: var(--bg-input); border: 1px solid var(--border-color); border-radius: 8px; color: var(--text-input); outline: none; font-size: 13px;">
+                        </div>
                         <div class="report-actions">
                             <button class="action-btn email-report" id="email-report-btn">
                                 <i class="fa-solid fa-envelope"></i> Отправить на Email

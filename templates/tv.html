@@ -130,8 +130,14 @@
         }
         .panel-body { flex: 1; overflow: hidden; padding: 0 0.6rem 0.6rem; }
 
-        /* Таблица топ-хостов */
-        table { width: 100%; border-collapse: collapse; }
+        /* Таблица топ-хостов: фиксированная раскладка, чтобы колонки не наезжали друг на друга */
+        table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+        col.c-rank { width: 2.4rem; }
+        col.c-client { width: 22%; }
+        col.c-count { width: 4.6rem; }
+        col.c-downtime { width: 7rem; }
+        col.c-sla { width: 5.6rem; }
+        col.c-state { width: 4.4rem; }
         th {
             font-size: 0.75rem;
             color: var(--text-muted);
@@ -149,8 +155,7 @@
             text-overflow: ellipsis;
         }
         td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
-        .rank { color: var(--text-muted); font-weight: 600; width: 2rem; }
-        .host-cell { max-width: 0; }
+        .rank { color: var(--text-muted); font-weight: 600; }
         .host-name { font-weight: 600; }
         .problem-text {
             font-size: 0.75rem;
@@ -168,9 +173,11 @@
             padding: 0.1rem 0.55rem;
             font-size: 0.82rem;
             font-weight: 600;
-            max-width: 14rem;
+            max-width: 100%;
+            box-sizing: border-box;
             overflow: hidden;
             text-overflow: ellipsis;
+            white-space: nowrap;
             vertical-align: middle;
         }
         .sla-ok { color: var(--success); font-weight: 700; }
@@ -350,6 +357,10 @@
                 </tr>`;
             });
             box.innerHTML = `<table>
+                <colgroup>
+                    <col class="c-rank"><col><col class="c-client">
+                    <col class="c-count"><col class="c-downtime"><col class="c-sla"><col class="c-state">
+                </colgroup>
                 <thead><tr>
                     <th>#</th><th>Хост</th><th>Клиент</th>
                     <th class="num">Сбоев</th><th class="num">Простой</th><th class="num">SLA</th>

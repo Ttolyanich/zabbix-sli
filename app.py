@@ -301,6 +301,7 @@ def tv_data():
     start_ts, end_ts, period_label = _resolve_tv_period(period_key)
 
     report = analytics.calculate_sli_report(start_ts, end_ts)
+    exclude_vpn = database.get_settings().get('exclude_vpn_issues') == '1'
 
     hosts = []
     clients = []
@@ -309,9 +310,12 @@ def tv_data():
     for c_name, c_data in report.items():
         client_active_hosts = 0
         for srv in c_data['servers']:
+            # Активная проблема = нерешённый инцидент, кроме обслуживания и
+            # (при включённом исключении) инцидентов категории "Сеть/VPN"
             active_incidents = [
                 inc for inc in srv['incidents']
                 if not inc['r_clock'] and not inc['is_maintenance']
+                and not (exclude_vpn and inc['is_vpn_issue'])
             ]
             active_incidents_total += len(active_incidents)
             if active_incidents:

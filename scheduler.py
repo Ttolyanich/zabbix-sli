@@ -109,27 +109,27 @@ def sync_zabbix_data():
                 db_map = current_mappings[h_id]
                 if mapping_mode == 'group_auto':
                     # В режиме полного автомата перезаписываем клиента
-                    database.save_mapping(h_id, h_name, client_name, db_map['comment'] or '', 0)
+                    database.save_mapping(h_id, h_name, client_name, db_map['comment'] or '', 0, 1)
                 else:
                     # В гибридном режиме ручные правки в приоритете
                     if db_map.get('is_manual', 0) == 0:
-                        database.save_mapping(h_id, h_name, client_name, db_map['comment'] or '', 0)
+                        database.save_mapping(h_id, h_name, client_name, db_map['comment'] or '', 0, 1)
                     else:
-                        database.save_mapping(h_id, h_name, db_map['client_name'], db_map['comment'] or '', 1)
+                        database.save_mapping(h_id, h_name, db_map['client_name'], db_map['comment'] or '', 1, 1)
             else:
                 # Абсолютно новый хост в системе
-                database.save_mapping(h_id, h_name, client_name, '', is_manual)
+                database.save_mapping(h_id, h_name, client_name, '', is_manual, 1)
                 
-        # Автоматическая очистка хостов, которые были удалены или деактивированы в Zabbix
+        # Автоматическая мягкая очистка хостов, которые были удалены или деактивированы в Zabbix
         active_hostids = {zh['hostid'] for zh in zbx_hosts}
         deleted_hostids = set(current_mappings.keys()) - active_hostids
         if deleted_hostids:
-            print(f"[Scheduler] Found {len(deleted_hostids)} deactivated or deleted hosts in Zabbix. Cleaning up...")
+            print(f"[Scheduler] Found {len(deleted_hostids)} deactivated or deleted hosts in Zabbix. Setting active=0...")
             for del_id in deleted_hostids:
-                database.delete_host_data(del_id)
+                database.set_host_active_status(del_id, 0)
                 
-        # 3. Загружаем актуальные привязки хостов из БД для сбора инцидентов
-        mappings = database.get_mappings()
+        # 3. Загружаем актуальные привязки хостов из БД для сбора инцидентов (только активные)
+        mappings = database.get_mappings(only_active=True)
         hostids = [m['zabbix_hostid'] for m in mappings]
         
         if not hostids:

@@ -37,15 +37,18 @@ def init_db():
             host_name TEXT NOT NULL,
             client_name TEXT NOT NULL,
             comment TEXT,
-            is_manual INTEGER DEFAULT 0
+            is_manual INTEGER DEFAULT 0,
+            is_active INTEGER DEFAULT 1
         )
     ''')
     
-    # Проверяем, существует ли колонка is_manual в существующей БД
+    # Проверяем, существуют ли колонки в существующей БД
     cursor.execute("PRAGMA table_info(server_mappings)")
     columns = [col[1] for col in cursor.fetchall()]
     if 'is_manual' not in columns:
         cursor.execute("ALTER TABLE server_mappings ADD COLUMN is_manual INTEGER DEFAULT 0")
+    if 'is_active' not in columns:
+        cursor.execute("ALTER TABLE server_mappings ADD COLUMN is_active INTEGER DEFAULT 1")
     
     # Таблица кэша инцидентов Zabbix
     cursor.execute('''
@@ -151,18 +154,27 @@ def save_settings(settings_dict):
     conn.commit()
     conn.close()
 
-def get_mappings():
+def get_mappings(only_active=False):
     conn = get_db_connection()
-    rows = conn.execute('SELECT zabbix_hostid, host_name, client_name, comment, is_manual FROM server_mappings ORDER BY client_name, host_name').fetchall()
+    if only_active:
+        rows = conn.execute('SELECT zabbix_hostid, host_name, client_name, comment, is_manual, is_active FROM server_mappings WHERE is_active = 1 ORDER BY client_name, host_name').fetchall()
+    else:
+        rows = conn.execute('SELECT zabbix_hostid, host_name, client_name, comment, is_manual, is_active FROM server_mappings ORDER BY client_name, host_name').fetchall()
     conn.close()
     return [dict(row) for row in rows]
 
-def save_mapping(zabbix_hostid, host_name, client_name, comment, is_manual=1):
+def save_mapping(zabbix_hostid, host_name, client_name, comment, is_manual=1, is_active=1):
     conn = get_db_connection()
     conn.execute('''
-        INSERT OR REPLACE INTO server_mappings (zabbix_hostid, host_name, client_name, comment, is_manual)
-        VALUES (?, ?, ?, ?, ?)
-    ''', (zabbix_hostid, host_name, client_name, comment, is_manual))
+        INSERT OR REPLACE INTO server_mappings (zabbix_hostid, host_name, client_name, comment, is_manual, is_active)
+        VALUES (?, ?, ?, ?, ?, ?)
+    ''', (zabbix_hostid, host_name, client_name, comment, is_manual, is_active))
+    conn.commit()
+    conn.close()
+
+def set_host_active_status(zabbix_hostid, is_active):
+    conn = get_db_connection()
+    conn.execute('UPDATE server_mappings SET is_active = ? WHERE zabbix_hostid = ?', (int(is_active), zabbix_hostid))
     conn.commit()
     conn.close()
 

@@ -95,7 +95,8 @@ def calculate_sli_report(start_time, end_time):
         host_to_client[h_id] = c_name
         host_details[h_id] = {
             'name': m['host_name'],
-            'comment': m['comment']
+            'comment': m['comment'],
+            'is_active': m.get('is_active', 1)
         }
         
     all_host_ids = list(host_to_client.keys())
@@ -203,6 +204,7 @@ def calculate_sli_report(start_time, end_time):
         srv_data['incidents'].append(inc_report)
         
     # Рассчитываем итоговые проценты по серверам и клиентам
+    final_results = {}
     for c_name, client_data in results.items():
         client_downtimes = []
         client_mttr_sums = 0
@@ -211,7 +213,17 @@ def calculate_sli_report(start_time, end_time):
         client_mttd_count = 0
         client_total_incidents = 0
         
+        # Фильтруем сервера: исключаем неактивные без инцидентов в текущем периоде
+        filtered_servers = {}
         for h_id, srv_data in client_data['servers'].items():
+            is_active = host_details[h_id]['is_active']
+            if is_active == 1 or srv_data['downtime_sec'] > 0 or srv_data['incidents_count'] > 0:
+                filtered_servers[h_id] = srv_data
+                
+        if not filtered_servers:
+            continue  # Пропускаем клиента полностью, если у него нет активных/релевантных серверов
+            
+        for h_id, srv_data in filtered_servers.items():
             # Расчет SLA сервера
             srv_sla = ((total_period_seconds - srv_data['downtime_sec']) / total_period_seconds) * 100.0
             srv_data['sla_percent'] = max(0.0, min(100.0, round(srv_sla, 3)))
@@ -248,13 +260,15 @@ def calculate_sli_report(start_time, end_time):
         else:
             client_data['sla_percent'] = 100.0
             
-        client_data['total_downtime_sec'] = sum(s['downtime_sec'] for s in client_data['servers'].values())
+        client_data['total_downtime_sec'] = sum(s['downtime_sec'] for s in filtered_servers.values())
         client_data['mttr_avg_sec'] = int(client_mttr_sums / client_mttr_count) if client_mttr_count > 0 else 0
         client_data['mttd_avg_sec'] = int(client_mttd_sums / client_mttd_count) if client_mttd_count > 0 else 0
         client_data['total_incidents_count'] = client_total_incidents
         
         # Превращаем dict серверов в список для удобства на фронте
-        client_data['servers'] = list(client_data['servers'].values())
+        client_data['servers'] = list(filtered_servers.values())
         client_data['servers'].sort(key=lambda x: x['name'])
         
-    return results
+        final_results[c_name] = client_data
+        
+    return final_results

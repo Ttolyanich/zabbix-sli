@@ -193,7 +193,7 @@ def handle_settings():
 @login_required
 def handle_mappings():
     if request.method == 'GET':
-        mappings = database.get_mappings()
+        mappings = database.get_mappings(only_active=True)
         return jsonify(mappings)
         
     elif request.method == 'POST':

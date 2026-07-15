@@ -331,6 +331,7 @@
             const problem = hosts.filter(h => h.downtime_sec > 0 || h.is_down_now);
             if (!problem.length) {
                 box.innerHTML = '<div class="empty-state"><span class="big">&#10004;&#65039;</span>Проблемных хостов нет — все серверы доступны</div>';
+                document.getElementById('hosts-title').textContent = 'Проблемные хосты';
                 return;
             }
             let rows = '';
@@ -356,20 +357,28 @@
                 </tr></thead>
                 <tbody>${rows}</tbody>
             </table>`;
-            trimOverflowRows(box);
+            const shown = trimOverflowRows(box);
+            const title = document.getElementById('hosts-title');
+            title.textContent = shown < problem.length
+                ? `Топ-${shown} из ${Math.min(problem.length, TOP)} проблемных хостов (по высоте экрана)`
+                : `Топ-${shown} проблемных хостов`;
         }
 
         function trimOverflowRows(box) {
-            // Убираем строки, не влезающие в экран (на телевизоре 1080p топ-20 помещается целиком)
+            // Убираем строки, не влезающие в экран (на телевизоре 1080p топ-20 помещается целиком).
+            // Возвращает число оставшихся строк.
             const limit = box.getBoundingClientRect().bottom;
             const rows = box.querySelectorAll('tbody tr');
+            let shown = rows.length;
             for (let i = rows.length - 1; i > 0; i--) {
                 if (rows[i].getBoundingClientRect().bottom > limit) {
                     rows[i].remove();
+                    shown--;
                 } else {
                     break;
                 }
             }
+            return shown;
         }
 
         function renderClients(clients) {
@@ -408,7 +417,6 @@
                 const data = await resp.json();
 
                 document.getElementById('period-label').textContent = data.period.label;
-                document.getElementById('hosts-title').textContent = `Топ-${TOP} проблемных хостов`;
 
                 const o = data.overall;
                 const slaEl = document.getElementById('kpi-sla');

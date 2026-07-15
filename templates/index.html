@@ -456,6 +456,24 @@
                             </div>
                         </div>
 
+                        <!-- ТВ-панель (NOC) -->
+                        <div class="card">
+                            <div class="card-header-icon logic-color" style="background: linear-gradient(135deg, #06b6d4, #3b82f6);"><i class="fa-solid fa-tv"></i></div>
+                            <h3>ТВ-панель (NOC-дашборд)</h3>
+                            <p style="color: var(--text-muted); font-size: 13px; margin-bottom: 15px;">
+                                Страница <code>/tv</code> для вывода на телевизор: общая доступность, топ проблемных хостов по суммарному простою и проблемные клиенты. Обновляется автоматически. Доступ по токену — без входа в систему.
+                            </p>
+                            <div class="form-group">
+                                <label for="tv_access_token">Токен доступа ТВ-панели</label>
+                                <input type="text" id="tv_access_token" placeholder="Токен сгенерируется автоматически">
+                                <span class="help-text">Параметры URL: <code>?period=today|7d|30d|month</code> (период), <code>?refresh=60</code> (сек), <code>?top=20</code> (размер топа)</span>
+                            </div>
+                            <button type="button" class="test-btn" id="open-tv-panel-btn" style="margin-top: 10px; width: 100%; border: 1px solid rgba(6, 182, 212, 0.4); color: #06b6d4;"
+                                onclick="window.open('/tv?token=' + encodeURIComponent(document.getElementById('tv_access_token').value), '_blank')">
+                                <i class="fa-solid fa-up-right-from-square"></i> Открыть ТВ-панель
+                            </button>
+                        </div>
+
                         <!-- Смена пароля -->
                         <div class="card">
                             <div class="card-header-icon logic-color" style="background: linear-gradient(135deg, #ec4899, #f43f5e);"><i class="fa-solid fa-key"></i></div>

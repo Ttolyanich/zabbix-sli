@@ -70,6 +70,23 @@ def login_required(f):
         return f(*args, **kwargs)
     return decorated_function
 
+def _tv_token_valid():
+    """Проверяет токен доступа к ТВ-панели (?token=...)."""
+    provided = request.args.get('token', '')
+    expected = database.get_settings().get('tv_access_token', '')
+    return bool(expected) and bool(provided) and secrets.compare_digest(provided, expected)
+
+def tv_access_required(f):
+    """Доступ по сессии ИЛИ по токену ТВ-панели (для телевизора без логина)."""
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if 'user_id' in session or _tv_token_valid():
+            return f(*args, **kwargs)
+        if request.path.startswith('/api/'):
+            return jsonify({"status": "error", "message": "Требуется авторизация или токен ТВ-панели"}), 401
+        return redirect(url_for('login'))
+    return decorated_function
+
 def admin_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
@@ -253,6 +270,93 @@ def get_report():
                     inc['comment_date'] = comments[ev_id]['created_at']
                     
     return jsonify(report)
+
+# === ТВ-панель (NOC-дашборд для телевизора) ===
+
+def _resolve_tv_period(period_key):
+    """Возвращает (start_ts, end_ts, label) для периода ТВ-панели."""
+    now = datetime.datetime.now()
+    end_ts = int(time.time())
+    if period_key == 'today':
+        start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        return int(start.timestamp()), end_ts, 'Сегодня'
+    if period_key == '7d':
+        return end_ts - 7 * 86400, end_ts, 'Последние 7 дней'
+    if period_key == '30d':
+        return end_ts - 30 * 86400, end_ts, 'Последние 30 дней'
+    # По умолчанию — текущий месяц (как на основном дашборде)
+    start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    return int(start.timestamp()), end_ts, 'Текущий месяц'
+
+@app.route('/tv')
+@tv_access_required
+def tv_panel():
+    return render_template('tv.html')
+
+@app.route('/api/tv-data', methods=['GET'])
+@tv_access_required
+def tv_data():
+    period_key = request.args.get('period', 'month')
+    top_limit = min(request.args.get('top', 20, type=int), 50)
+    start_ts, end_ts, period_label = _resolve_tv_period(period_key)
+
+    report = analytics.calculate_sli_report(start_ts, end_ts)
+
+    hosts = []
+    clients = []
+    active_incidents_total = 0
+
+    for c_name, c_data in report.items():
+        client_active_hosts = 0
+        for srv in c_data['servers']:
+            active_incidents = [
+                inc for inc in srv['incidents']
+                if not inc['r_clock'] and not inc['is_maintenance']
+            ]
+            active_incidents_total += len(active_incidents)
+            if active_incidents:
+                client_active_hosts += 1
+            hosts.append({
+                'hostid': srv['hostid'],
+                'name': srv['name'],
+                'client_name': c_name,
+                'sla_percent': srv['sla_percent'],
+                'downtime_sec': srv['downtime_sec'],
+                'incidents_count': srv['incidents_count'],
+                'is_down_now': bool(active_incidents),
+                'current_problem': active_incidents[0]['name'] if active_incidents else None
+            })
+        clients.append({
+            'client_name': c_name,
+            'sla_percent': c_data['sla_percent'],
+            'total_downtime_sec': c_data['total_downtime_sec'],
+            'servers_count': len(c_data['servers']),
+            'active_problem_hosts': client_active_hosts,
+            'incidents_count': c_data['total_incidents_count']
+        })
+
+    # Общая доступность = средний SLA по всем серверам парка
+    overall_sla = round(sum(h['sla_percent'] for h in hosts) / len(hosts), 3) if hosts else 100.0
+
+    # Топ проблемных хостов: сначала по суммарному простою, затем по числу инцидентов
+    hosts.sort(key=lambda h: (-h['downtime_sec'], -h['incidents_count'], h['name']))
+    # Топ проблемных клиентов по суммарному простою
+    clients.sort(key=lambda c: (-c['total_downtime_sec'], -c['incidents_count'], c['client_name']))
+
+    return jsonify({
+        'period': {'key': period_key, 'label': period_label, 'start': start_ts, 'end': end_ts},
+        'overall': {
+            'sla_percent': overall_sla,
+            'servers_total': len(hosts),
+            'clients_total': len(clients),
+            'hosts_down_now': sum(1 for h in hosts if h['is_down_now']),
+            'active_incidents': active_incidents_total,
+            'total_downtime_sec': sum(h['downtime_sec'] for h in hosts)
+        },
+        'top_hosts': hosts[:top_limit],
+        'top_clients': [c for c in clients if c['total_downtime_sec'] > 0 or c['active_problem_hosts'] > 0][:10],
+        'generated_at': int(time.time())
+    })
 
 @app.route('/api/sync', methods=['POST'])
 @login_required

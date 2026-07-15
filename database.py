@@ -1,5 +1,6 @@
 import sqlite3
 import os
+import secrets
 from flask import g
 from werkzeug.security import generate_password_hash, check_password_hash
 
@@ -126,6 +127,8 @@ def init_db():
         'exclude_vpn_issues': '0', # Исключать ли короткие инциденты (<1м) из общего SLA
         'min_severity': '0',
         'mapping_mode': 'name_auto',
+        # Токен доступа к ТВ-панели (/tv?token=...) — генерируется один раз при первом запуске
+        'tv_access_token': secrets.token_urlsafe(16),
         'ignored_host_groups': 'templates, linux servers, windows servers, zabbix servers, virtual machines, hypervisors, discovered hosts, web servers, database servers, network devices, printers, storage devices, discovered, hypervisor'
     }
     

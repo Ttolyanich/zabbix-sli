@@ -244,6 +244,7 @@ def get_incidents(start_time, end_time, hostids=None):
     result = []
     for row in rows:
         d = dict(row)
+        d['is_power_issue'] = 0
         override = d.get('overridden_category')
         if override:
             if override == 'network':
@@ -252,6 +253,10 @@ def get_incidents(start_time, end_time, hostids=None):
             elif override == 'maintenance':
                 d['is_vpn_issue'] = 0
                 d['is_maintenance'] = 1
+            elif override == 'power':
+                d['is_vpn_issue'] = 0
+                d['is_maintenance'] = 0
+                d['is_power_issue'] = 1
             elif override == 'server':
                 d['is_vpn_issue'] = 0
                 d['is_maintenance'] = 0

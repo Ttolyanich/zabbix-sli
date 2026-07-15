@@ -310,11 +310,12 @@ def tv_data():
     for c_name, c_data in report.items():
         client_active_hosts = 0
         for srv in c_data['servers']:
-            # Активная проблема = нерешённый инцидент, кроме обслуживания и
-            # (при включённом исключении) инцидентов категории "Сеть/VPN"
+            # Активная проблема = нерешённый инцидент, кроме обслуживания, электропитания
+            # и (при включённом исключении) инцидентов категории "Сеть/VPN"
             active_incidents = [
                 inc for inc in srv['incidents']
                 if not inc['r_clock'] and not inc['is_maintenance']
+                and not inc.get('is_power_issue')
                 and not (exclude_vpn and inc['is_vpn_issue'])
             ]
             active_incidents_total += len(active_incidents)
@@ -468,7 +469,7 @@ def override_incident_category(eventid):
     data = request.json
     category = data.get('category', 'auto')
     
-    if category not in ['auto', 'server', 'network', 'maintenance']:
+    if category not in ['auto', 'server', 'network', 'maintenance', 'power']:
         return jsonify({"status": "error", "message": "Неверная категория"}), 400
         
     database.save_category_override(eventid, category)
@@ -485,7 +486,7 @@ def bulk_override_incidents():
     if not eventids:
         return jsonify({"status": "error", "message": "Список инцидентов пуст"}), 400
         
-    if category not in ['auto', 'server', 'network', 'maintenance']:
+    if category not in ['auto', 'server', 'network', 'maintenance', 'power']:
         return jsonify({"status": "error", "message": "Неверная категория"}), 400
         
     try:

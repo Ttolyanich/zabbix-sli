@@ -662,6 +662,12 @@ body {
     border: 1px solid rgba(107, 114, 128, 0.4);
 }
 
+.status-badge.power-issue {
+    background-color: rgba(245, 158, 11, 0.15);
+    color: var(--warning);
+    border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
 .sla-badge {
     padding: 4px 8px;
     border-radius: 6px;

@@ -249,8 +249,8 @@ async function loadDashboardData() {
                 srv.incidents.forEach(inc => {
                     if (inc.is_vpn_issue) {
                         vpnIssuesCount++;
-                    } else if (inc.is_maintenance) {
-                        // Не считаем сбоем сервера
+                    } else if (inc.is_maintenance || inc.is_power_issue) {
+                        // Обслуживание и электропитание не считаем сбоем сервера
                     } else {
                         serverIssuesCount++;
                     }
@@ -644,6 +644,8 @@ function renderServerIncidents(srv, tbody) {
             categoryHtml = `<span class="status-badge vpn-issue"><i class="fa-solid fa-wifi"></i> Сеть / VPN (&lt;1м)</span>`;
         } else if (inc.is_maintenance) {
             categoryHtml = `<span class="status-badge maintenance"><i class="fa-solid fa-screwdriver-wrench"></i> Обслуживание</span>`;
+        } else if (inc.is_power_issue) {
+            categoryHtml = `<span class="status-badge power-issue"><i class="fa-solid fa-plug-circle-bolt"></i> Электропитание</span>`;
         } else {
             categoryHtml = `<span class="status-badge server-issue"><i class="fa-solid fa-triangle-exclamation"></i> Сбой ПО/Сервера</span>`;
         }
@@ -1599,60 +1601,74 @@ function updatePrintReport(reportData, summary) {
     html += `
             </tbody>
         </table>
-        
+
         <div class="page-break"></div>
-        
-        <div class="print-section-title" style="margin-top: 0;">Сводная таблица SLA по всем клиентам</div>
+
+        <div class="print-section-title" style="margin-top: 0;">Все проблемы по серверам за период</div>
         <table class="print-table">
             <thead>
                 <tr>
-                    <th>Клиент / Сервер</th>
-                    <th style="width: 100px; text-align: right;">Uptime %</th>
+                    <th>Клиент</th>
+                    <th>Сервер</th>
+                    <th>Инцидент</th>
+                    <th>Комментарий</th>
                     <th style="width: 100px; text-align: center;">Время простоя</th>
-                    <th style="width: 70px; text-align: center;">Сбоев</th>
-                    <th style="width: 100px; text-align: center;">MTTD (Реакция)</th>
-                    <th style="width: 100px; text-align: center;">MTTR (Решение)</th>
                 </tr>
             </thead>
             <tbody>
     `;
-    
-    const clients = Object.keys(reportData).map(name => ({ name, ...reportData[name] }));
-    clients.sort((a, b) => a.name.localeCompare(b.name));
-    
-    clients.forEach(client => {
-        const clientSlaClass = client.sla_percent >= 99.5 ? 'good' : (client.sla_percent >= 98.0 ? 'warn' : 'poor');
-        html += `
-            <tr class="client-group-row">
-                <td><b>${client.name}</b></td>
-                <td style="text-align: right;" class="print-sla-badge ${clientSlaClass}">${client.sla_percent.toFixed(3)}%</td>
-                <td style="text-align: center;">${formatDuration(client.total_downtime_sec)}</td>
-                <td style="text-align: center;">${client.total_incidents_count}</td>
-                <td style="text-align: center;">${formatDuration(client.mttd_avg_sec)}</td>
-                <td style="text-align: center;">${formatDuration(client.mttr_avg_sec)}</td>
-            </tr>
-        `;
-        
-        client.servers.forEach(srv => {
-            const srvSlaClass = srv.sla_percent >= 99.5 ? 'good' : (srv.sla_percent >= 98.0 ? 'warn' : 'poor');
+
+    // Собираем все инциденты всех серверов за период
+    const allIncidents = [];
+    for (const clientName in reportData) {
+        reportData[clientName].servers.forEach(srv => {
+            srv.incidents.forEach(inc => {
+                let excludedLabel = '';
+                if (inc.is_maintenance) excludedLabel = 'обслуживание';
+                else if (inc.is_power_issue) excludedLabel = 'электропитание';
+                else if (inc.is_vpn_issue) excludedLabel = 'сеть/VPN';
+                allIncidents.push({
+                    clientName: clientName,
+                    serverName: srv.name,
+                    name: inc.name,
+                    clock: inc.clock,
+                    comment: inc.comment_text || '',
+                    downtime: inc.downtime_in_period_sec || 0,
+                    excludedLabel: excludedLabel
+                });
+            });
+        });
+    }
+    allIncidents.sort((a, b) =>
+        a.clientName.localeCompare(b.clientName) ||
+        a.serverName.localeCompare(b.serverName) ||
+        b.clock - a.clock
+    );
+
+    if (allIncidents.length === 0) {
+        html += `<tr><td colspan="5" style="text-align: center;">За выбранный период проблем не зафиксировано</td></tr>`;
+    } else {
+        allIncidents.forEach(inc => {
             html += `
                 <tr>
-                    <td style="padding-left: 20px;">↳ ${srv.name}</td>
-                    <td style="text-align: right;" class="print-sla-badge ${srvSlaClass}">${srv.sla_percent.toFixed(3)}%</td>
-                    <td style="text-align: center;">${formatDuration(srv.downtime_sec)}</td>
-                    <td style="text-align: center;">${srv.incidents_count}</td>
-                    <td style="text-align: center;">${formatDuration(srv.mttd_sec)}</td>
-                    <td style="text-align: center;">${formatDuration(srv.mttr_sec)}</td>
+                    <td><b>${inc.clientName}</b></td>
+                    <td>${inc.serverName}</td>
+                    <td>
+                        ${inc.name}
+                        <div style="font-size: 10px; color: #777;">${formatDateTime(inc.clock)}${inc.excludedLabel ? ` · ${inc.excludedLabel}` : ''}</div>
+                    </td>
+                    <td style="font-size: 11px; color: #555;">${inc.comment || '-'}</td>
+                    <td style="text-align: center;">${formatDuration(inc.downtime)}</td>
                 </tr>
             `;
         });
-    });
-    
+    }
+
     html += `
             </tbody>
         </table>
     `;
-    
+
     container.innerHTML = html;
 }
 

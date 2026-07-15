@@ -164,6 +164,9 @@ def calculate_sli_report(start_time, end_time):
         elif inc['is_maintenance'] == 1:
             # Обслуживание исключаем из простоев
             inc_downtime = 0
+        elif inc.get('is_power_issue') == 1:
+            # Проблемы с электропитанием у клиента (не связаны с работой сервера) — исключаем из SLA
+            inc_downtime = 0
         else:
             # Вычисляем пересечение инцидента с отчетным периодом
             inc_start = max(start_time, inc['clock'])

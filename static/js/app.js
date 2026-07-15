@@ -211,9 +211,9 @@ async function loadDashboardData() {
             return;
         }
         
-        // Подсчет сводных KPI
-        let totalSla = 0;
-        let clientCount = 0;
+        // Подсчет сводных KPI (средний SLA — по всем серверам, как на ТВ-панели)
+        let serverSlaSum = 0;
+        let serverCount = 0;
         let totalMttdSum = 0;
         let totalMttdCount = 0;
         let totalMttrSum = 0;
@@ -226,9 +226,7 @@ async function loadDashboardData() {
         
         for (const clientName in data) {
             const client = data[clientName];
-            totalSla += client.sla_percent;
-            clientCount++;
-            
+
             if (client.mttd_avg_sec > 0) {
                 totalMttdSum += client.mttd_avg_sec;
                 totalMttdCount++;
@@ -239,8 +237,10 @@ async function loadDashboardData() {
             }
             totalIncidentsCount += client.total_incidents_count;
             
-            // Суммируем типы сбоев
+            // Суммируем SLA серверов и типы сбоев
             client.servers.forEach(srv => {
+                serverSlaSum += srv.sla_percent;
+                serverCount++;
                 srv.incidents.forEach(inc => {
                     if (inc.is_vpn_issue) {
                         vpnIssuesCount++;
@@ -254,7 +254,7 @@ async function loadDashboardData() {
         }
         
         const summary = {
-            avgSla: clientCount > 0 ? (totalSla / clientCount).toFixed(3) : 100,
+            avgSla: serverCount > 0 ? (serverSlaSum / serverCount).toFixed(3) : 100,
             avgMttd: totalMttdCount > 0 ? Math.round(totalMttdSum / totalMttdCount) : 0,
             avgMttr: totalMttrCount > 0 ? Math.round(totalMttrSum / totalMttrCount) : 0,
             totalIncidents: totalIncidentsCount

@@ -1,7 +1,9 @@
 from flask import Flask, render_template, request, jsonify, send_from_directory, session, redirect, url_for
 import os
 import time
+import secrets
 import datetime
+from collections import defaultdict, deque
 from dotenv import load_dotenv
 from functools import wraps
 
@@ -14,8 +16,48 @@ import notifier
 # Загрузка переменных окружения
 load_dotenv()
 
+def _load_or_create_secret_key():
+    """SECRET_KEY из окружения; иначе персистентный автогенерируемый ключ в data/."""
+    env_key = os.environ.get('SECRET_KEY')
+    if env_key:
+        return env_key
+    secret_dir = os.path.dirname(os.environ.get('DATABASE_PATH', './data/sli_dashboard.db')) or '.'
+    os.makedirs(secret_dir, exist_ok=True)
+    path = os.path.join(secret_dir, '.secret_key')
+    try:
+        with open(path, 'r') as f:
+            value = f.read().strip()
+            if value:
+                return value
+    except FileNotFoundError:
+        pass
+    value = secrets.token_hex(32)
+    with open(path, 'w') as f:
+        f.write(value)
+    print(f"AUTO-CONFIG: Сгенерирован новый SECRET_KEY и сохранен в {path}")
+    return value
+
 app = Flask(__name__, template_folder='templates', static_folder='static')
-app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'zabbix_sli_secret_key_8899_prod')
+app.config['SECRET_KEY'] = _load_or_create_secret_key()
+app.config.update(
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE='Lax',
+)
+
+# Простой in-memory ограничитель попыток входа (защита от перебора паролей)
+_login_attempts = defaultdict(deque)
+LOGIN_MAX_ATTEMPTS = 10
+LOGIN_WINDOW_SECONDS = 300
+
+def login_rate_limited(key):
+    now = time.time()
+    attempts = _login_attempts[key]
+    while attempts and attempts[0] < now - LOGIN_WINDOW_SECONDS:
+        attempts.popleft()
+    return len(attempts) >= LOGIN_MAX_ATTEMPTS
+
+def register_failed_login(key):
+    _login_attempts[key].append(time.time())
 
 # Middleware-декораторы для проверки прав доступа
 def login_required(f):
@@ -62,7 +104,13 @@ def login():
         else:
             username = request.form.get('username')
             password = request.form.get('password')
-            
+
+        if login_rate_limited(request.remote_addr):
+            msg = "Слишком много неудачных попыток входа. Попробуйте позже."
+            if request.is_json:
+                return jsonify({"status": "error", "message": msg}), 429
+            return render_template('login.html', error=msg)
+
         user = database.authenticate_user(username, password)
         if user:
             session['user_id'] = user['id']
@@ -82,7 +130,8 @@ def login():
                     }
                 })
             return redirect(url_for('index'))
-            
+
+        register_failed_login(request.remote_addr)
         if request.is_json:
             return jsonify({"status": "error", "message": "Неверный логин или пароль"}), 400
         return render_template('login.html', error="Неверный логин или пароль")
@@ -432,6 +481,6 @@ def delete_user(user_id):
     return jsonify({"status": "error", "message": msg}), 400
 
 if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 5000))
+    port = int(os.environ.get('BIND_PORT', os.environ.get('PORT', 5000)))
     # Включаем прослушивание на всех интерфейсах для развертывания
     app.run(host='0.0.0.0', port=port, debug=False)

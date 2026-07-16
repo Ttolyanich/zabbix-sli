@@ -541,6 +541,112 @@ def api_delete_incident_pattern():
     except Exception as e:
         return jsonify({"status": "error", "message": f"Ошибка удаления правила: {str(e)}"}), 500
 
+# === BI-аналитика: группы инцидентов и отчет ===
+
+@app.route('/api/analytics/groups', methods=['GET', 'POST'])
+@login_required
+def handle_analytics_groups():
+    if request.method == 'GET':
+        return jsonify(database.get_analytics_groups())
+
+    if session.get('role') != 'admin':
+        return jsonify({"status": "error", "message": "Доступ запрещен (требуются права администратора)"}), 403
+
+    data = request.json or {}
+    name = (data.get('name') or '').strip()
+    color = (data.get('color') or '#3b82f6').strip()
+
+    if not name:
+        return jsonify({"status": "error", "message": "Название группы не может быть пустым"}), 400
+
+    group_id = database.create_analytics_group(name, color)
+    if group_id is None:
+        return jsonify({"status": "error", "message": "Группа с таким названием уже существует"}), 400
+
+    return jsonify({"status": "success", "message": "Группа успешно создана", "id": group_id})
+
+@app.route('/api/analytics/groups/<int:group_id>', methods=['DELETE'])
+@admin_required
+def delete_analytics_group(group_id):
+    database.delete_analytics_group(group_id)
+    return jsonify({"status": "success", "message": "Группа удалена"})
+
+@app.route('/api/analytics/groups/<int:group_id>/patterns', methods=['POST'])
+@admin_required
+def add_analytics_group_pattern(group_id):
+    data = request.json or {}
+    pattern = (data.get('pattern') or '').strip()
+
+    if not pattern:
+        return jsonify({"status": "error", "message": "Паттерн не может быть пустым"}), 400
+
+    database.add_analytics_pattern(group_id, pattern)
+    return jsonify({"status": "success", "message": "Паттерн добавлен"})
+
+@app.route('/api/analytics/patterns/<int:pattern_id>', methods=['DELETE'])
+@admin_required
+def delete_analytics_group_pattern(pattern_id):
+    database.delete_analytics_pattern(pattern_id)
+    return jsonify({"status": "success", "message": "Паттерн удален"})
+
+@app.route('/api/analytics/report', methods=['GET'])
+@login_required
+def get_analytics_report():
+    now = datetime.datetime.now()
+    first_day_of_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+    start_ts = request.args.get('start_time', type=int)
+    end_ts = request.args.get('end_time', type=int)
+
+    if not start_ts:
+        start_ts = int(first_day_of_month.timestamp())
+    if not end_ts:
+        end_ts = int(time.time())
+
+    groups = database.get_analytics_groups()
+    report = analytics.calculate_sli_report(start_ts, end_ts)
+
+    # stats[group_id] = {group, count, downtime_sec, clients: {client_name: count}}
+    stats = {g['id']: {'group': g, 'count': 0, 'downtime_sec': 0, 'clients': {}} for g in groups}
+    uncategorized = {'count': 0, 'downtime_sec': 0, 'clients': {}}
+    total_incidents = 0
+
+    for client_name, client_data in report.items():
+        for srv in client_data['servers']:
+            for inc in srv['incidents']:
+                total_incidents += 1
+                match = database.classify_analytics_group(inc['name'], groups)
+                bucket = stats[match['id']] if match else uncategorized
+                bucket['count'] += 1
+                bucket['downtime_sec'] += inc.get('downtime_in_period_sec', 0) or 0
+                bucket['clients'][client_name] = bucket['clients'].get(client_name, 0) + 1
+
+    def _finalize(bucket, name=None, color=None, group_id=None):
+        top_clients = sorted(bucket['clients'].items(), key=lambda x: -x[1])[:5]
+        percent = round(bucket['count'] / total_incidents * 100, 1) if total_incidents else 0
+        return {
+            'id': group_id,
+            'name': name,
+            'color': color,
+            'count': bucket['count'],
+            'percent': percent,
+            'downtime_sec': bucket['downtime_sec'],
+            'top_clients': [{'client': c, 'count': n} for c, n in top_clients]
+        }
+
+    groups_result = [
+        _finalize(stats[g['id']], name=g['name'], color=g['color'], group_id=g['id'])
+        for g in groups
+    ]
+    groups_result.sort(key=lambda g: -g['count'])
+
+    return jsonify({
+        'period': {'start': start_ts, 'end': end_ts},
+        'total_incidents': total_incidents,
+        'groups': groups_result,
+        'uncategorized': _finalize(uncategorized, name='Не классифицировано', color='#6b7280')
+    })
+
 @app.route('/api/profile/change-password', methods=['POST'])
 @login_required
 def change_password():

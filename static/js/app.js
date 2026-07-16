@@ -9,6 +9,9 @@ let customEndTs = null;
 let sortColumn = 'name';
 let sortDirection = 'asc';
 let selectedIncidentEventIds = new Set();
+let analyticsChartInstance = null;
+let analyticsReportChartInstance = null;
+let currentAnalyticsData = null;
 
 // Инициализация при загрузке страницы
 document.addEventListener('DOMContentLoaded', () => {
@@ -18,6 +21,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initSortHeaders();
     initEventHandlers();
     initCustomSearchableSelect();
+    initAnalyticsGroupForm();
     
     // По умолчанию загружаем данные
     loadDashboardData();
@@ -87,43 +91,56 @@ function initTabs() {
     const buttons = document.querySelectorAll('.nav-btn');
     const contents = document.querySelectorAll('.tab-content');
     
-    // Показываем кнопку администрирования пользователей только для администраторов
+    // Показываем кнопки, доступные только администраторам
     if (window.currentUser && window.currentUser.role === 'admin') {
-        const adminBtn = document.querySelector('.nav-btn.admin-only');
-        if (adminBtn) {
-            adminBtn.style.display = 'flex';
+        document.querySelectorAll('.nav-btn.admin-only').forEach(btn => {
+            btn.style.display = 'flex';
+        });
+    }
+
+    function activateTab(targetTab) {
+        const btn = document.querySelector(`.nav-btn[data-tab="${targetTab}"]`);
+        if (!btn) return;
+
+        buttons.forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+
+        contents.forEach(c => c.classList.remove('active'));
+        document.getElementById(`tab-${targetTab}`).classList.add('active');
+
+        const titleMap = {
+            'dashboard': 'Панель мониторинга SLA/SLI',
+            'analytics-report': 'Аналитика: популярные проблемы',
+            'mappings': 'Сопоставление серверов с клиентами',
+            'settings': 'Настройки интеграций и SLA',
+            'analytics-settings': 'Настройка аналитики: группы проблем',
+            'users': 'Управление пользователями системы'
+        };
+        document.getElementById('page-title').innerText = titleMap[targetTab];
+
+        if (targetTab === 'mappings') {
+            loadZabbixHostsForSelect();
+        }
+        if (targetTab === 'users') {
+            loadUsersList();
+        }
+        if (targetTab === 'analytics-report') {
+            loadAnalyticsReportTab();
+        }
+        if (targetTab === 'analytics-settings') {
+            loadAnalyticsGroups();
         }
     }
-    
+
     buttons.forEach(btn => {
-        btn.addEventListener('click', () => {
-            const targetTab = btn.getAttribute('data-tab');
-            
-            // Активная кнопка
-            buttons.forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
-            
-            // Активный контент
-            contents.forEach(c => c.classList.remove('active'));
-            document.getElementById(`tab-${targetTab}`).classList.add('active');
-            
-            // Меняем заголовок
-            const titleMap = {
-                'dashboard': 'Панель мониторинга SLA/SLI',
-                'mappings': 'Сопоставление серверов с клиентами',
-                'settings': 'Настройки интеграций и SLA',
-                'users': 'Управление пользователями системы'
-            };
-            document.getElementById('page-title').innerText = titleMap[targetTab];
-            
-            // Если перешли в маппинги, перезагрузим Zabbix хосты для дропдауна
-            if (targetTab === 'mappings') {
-                loadZabbixHostsForSelect();
-            }
-            // Если перешли в пользователи, загрузим список пользователей
-            if (targetTab === 'users') {
-                loadUsersList();
-            }
+        btn.addEventListener('click', () => activateTab(btn.getAttribute('data-tab')));
+    });
+
+    // Ссылка "Полный отчет" на мини-диаграмме дашборда переключает вкладку
+    document.querySelectorAll('[data-goto-tab]').forEach(link => {
+        link.addEventListener('click', (e) => {
+            e.preventDefault();
+            activateTab(link.getAttribute('data-goto-tab'));
         });
     });
 }
@@ -138,6 +155,7 @@ function initPeriodPicker() {
             
             activePeriod = btn.getAttribute('data-period');
             loadDashboardData();
+            refreshAnalyticsReportIfActive();
         });
     });
     
@@ -161,9 +179,17 @@ function initPeriodPicker() {
         const endDate = new Date(endVal);
         endDate.setHours(23, 59, 59, 999);
         customEndTs = Math.floor(endDate.getTime() / 1000);
-        
+
         loadDashboardData();
+        refreshAnalyticsReportIfActive();
     });
+}
+
+function refreshAnalyticsReportIfActive() {
+    const tab = document.getElementById('tab-analytics-report');
+    if (tab && tab.classList.contains('active')) {
+        loadAnalyticsReportTab();
+    }
 }
 
 function getPeriodTimestamps() {
@@ -269,7 +295,8 @@ async function loadDashboardData() {
         renderCharts(data, vpnIssuesCount, serverIssuesCount);
         renderAccordion(data);
         updatePrintReport(data, summary);
-        
+        loadAnalyticsMiniChart(); // Некритичный виджет BI-аналитики, ошибки не должны ронять дашборд
+
     } catch (err) {
         showToast('Ошибка при загрузке данных дашборда', 'error');
         listContainer.innerHTML = '<div class="empty-state error"><i class="fa-solid fa-triangle-exclamation"></i> Не удалось загрузить данные отчета.</div>';
@@ -367,6 +394,323 @@ function renderCharts(reportData, vpnCount, serverCount) {
                     labels: { color: textColor, boxWidth: 12 }
                 }
             }
+        }
+    });
+}
+
+// === BI-аналитика: диаграммы и отчет по группам проблем ===
+
+async function fetchAnalyticsReport() {
+    const { startTs, endTs } = getPeriodTimestamps();
+    const response = await fetch(`/api/analytics/report?start_time=${startTs}&end_time=${endTs}`);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    return await response.json();
+}
+
+function renderAnalyticsMiniChart(data) {
+    const canvas = document.getElementById('analyticsChart');
+    if (!canvas) return;
+    if (analyticsChartInstance) analyticsChartInstance.destroy();
+
+    const isLight = document.documentElement.getAttribute('data-theme') === 'light';
+    const textColor = isLight ? '#475569' : '#9ca3af';
+
+    const groups = data.groups.filter(g => g.count > 0).sort((a, b) => b.count - a.count);
+    const topGroups = groups.slice(0, 6);
+    const restCount = groups.slice(6).reduce((s, g) => s + g.count, 0) + (data.uncategorized.count || 0);
+
+    const labels = topGroups.map(g => g.name);
+    const values = topGroups.map(g => g.count);
+    const colors = topGroups.map(g => g.color);
+
+    if (restCount > 0) {
+        labels.push('Прочее / не классифицировано');
+        values.push(restCount);
+        colors.push('#6b7280');
+    }
+
+    if (values.length === 0) {
+        labels.push('Нет инцидентов за период');
+        values.push(1);
+        colors.push('rgba(107, 114, 128, 0.3)');
+    }
+
+    analyticsChartInstance = new Chart(canvas.getContext('2d'), {
+        type: 'doughnut',
+        data: { labels, datasets: [{ data: values, backgroundColor: colors, borderColor: colors, borderWidth: 1 }] },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { position: 'right', labels: { color: textColor, boxWidth: 10, font: { size: 11 } } }
+            }
+        }
+    });
+}
+
+async function loadAnalyticsMiniChart() {
+    try {
+        const data = await fetchAnalyticsReport();
+        currentAnalyticsData = data;
+        renderAnalyticsMiniChart(data);
+    } catch (e) {
+        // Виджет на дашборде не критичен — молча пропускаем ошибку
+    }
+}
+
+function renderAnalyticsReportKPIs(data) {
+    document.getElementById('an-total-incidents').innerText = data.total_incidents;
+
+    const classifiedCount = data.groups.reduce((s, g) => s + g.count, 0);
+    const classifiedPercent = data.total_incidents > 0 ? Math.round(classifiedCount / data.total_incidents * 100) : 0;
+    document.getElementById('an-classified-percent').innerText = `${classifiedPercent}%`;
+
+    const topGroup = [...data.groups].sort((a, b) => b.count - a.count)[0];
+    document.getElementById('an-top-group').innerText = (topGroup && topGroup.count > 0) ? topGroup.name : '—';
+
+    document.getElementById('an-groups-count').innerText = data.groups.length;
+}
+
+function renderAnalyticsReportChart(data) {
+    const canvas = document.getElementById('analyticsReportChart');
+    if (!canvas) return;
+    if (analyticsReportChartInstance) analyticsReportChartInstance.destroy();
+
+    const isLight = document.documentElement.getAttribute('data-theme') === 'light';
+    const gridColor = isLight ? 'rgba(0, 0, 0, 0.05)' : 'rgba(255, 255, 255, 0.05)';
+    const textColor = isLight ? '#475569' : '#9ca3af';
+
+    const all = [...data.groups, data.uncategorized].filter(g => g.count > 0).sort((a, b) => b.count - a.count);
+
+    analyticsReportChartInstance = new Chart(canvas.getContext('2d'), {
+        type: 'bar',
+        data: {
+            labels: all.map(g => g.name),
+            datasets: [{
+                label: 'Инцидентов',
+                data: all.map(g => g.count),
+                backgroundColor: all.map(g => g.color),
+                borderColor: all.map(g => g.color),
+                borderWidth: 1,
+                borderRadius: 6
+            }]
+        },
+        options: {
+            indexAxis: 'y',
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { display: false } },
+            scales: {
+                x: { beginAtZero: true, grid: { color: gridColor }, ticks: { color: textColor, precision: 0 } },
+                y: { grid: { display: false }, ticks: { color: textColor } }
+            }
+        }
+    });
+}
+
+function renderAnalyticsReportTable(data) {
+    const tbody = document.getElementById('analytics-report-table-body');
+    if (!tbody) return;
+
+    const all = [...data.groups, data.uncategorized].filter(g => g.count > 0).sort((a, b) => b.count - a.count);
+
+    if (all.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="5" class="text-center" style="color: var(--text-muted);">За выбранный период инцидентов не зафиксировано</td></tr>';
+        return;
+    }
+
+    tbody.innerHTML = all.map(g => `
+        <tr>
+            <td>
+                <span class="analytics-group-swatch" style="background: ${g.color};"></span>
+                <b>${g.name}</b>
+            </td>
+            <td style="text-align: center;">${g.count}</td>
+            <td style="text-align: center;">${g.percent}%</td>
+            <td style="text-align: center;">${formatDuration(g.downtime_sec)}</td>
+            <td>${g.top_clients.length
+                ? g.top_clients.map(c => `<span class="client-tag">${c.client} (${c.count})</span>`).join(' ')
+                : '<span style="color: var(--text-muted);">—</span>'}</td>
+        </tr>
+    `).join('');
+}
+
+async function loadAnalyticsReportTab() {
+    const tbody = document.getElementById('analytics-report-table-body');
+    try {
+        const data = await fetchAnalyticsReport();
+        currentAnalyticsData = data;
+        renderAnalyticsMiniChart(data);
+        renderAnalyticsReportKPIs(data);
+        renderAnalyticsReportChart(data);
+        renderAnalyticsReportTable(data);
+    } catch (e) {
+        showToast('Ошибка при загрузке отчета аналитики', 'error');
+        if (tbody) tbody.innerHTML = '<tr><td colspan="5" class="text-center text-danger">Не удалось загрузить отчет аналитики</td></tr>';
+    }
+}
+
+// === BI-аналитика: управление группами и паттернами (администратор) ===
+
+async function loadAnalyticsGroups() {
+    const container = document.getElementById('analytics-groups-list');
+    if (!container) return;
+
+    try {
+        const response = await fetch('/api/analytics/groups');
+        const groups = await response.json();
+        renderAnalyticsGroups(groups);
+    } catch (e) {
+        container.innerHTML = '<div class="empty-state error"><i class="fa-solid fa-triangle-exclamation"></i> Не удалось загрузить группы аналитики</div>';
+    }
+}
+
+function renderAnalyticsGroups(groups) {
+    const container = document.getElementById('analytics-groups-list');
+    if (!container) return;
+
+    if (groups.length === 0) {
+        container.innerHTML = '<div class="empty-state">Групп пока нет. Создайте первую группу слева.</div>';
+        return;
+    }
+
+    container.innerHTML = groups.map(g => `
+        <div class="analytics-group-block" data-group-id="${g.id}">
+            <div class="analytics-group-header">
+                <span class="analytics-group-swatch" style="background: ${g.color};"></span>
+                <b>${g.name}</b>
+                <button type="button" class="pattern-delete-btn analytics-group-delete-btn" data-group-id="${g.id}" data-group-name="${g.name}" title="Удалить группу" style="margin-left: auto;">
+                    <i class="fa-solid fa-trash-can"></i>
+                </button>
+            </div>
+            <div class="analytics-pattern-tags">
+                ${g.patterns.length ? g.patterns.map(p => `
+                    <span class="pattern-tag">
+                        ${p.pattern}
+                        <i class="fa-solid fa-xmark pattern-tag-remove" data-pattern-id="${p.id}" title="Удалить паттерн"></i>
+                    </span>
+                `).join('') : '<span style="color: var(--text-muted); font-size: 12px;">Паттернов нет — инциденты не будут попадать в эту группу</span>'}
+            </div>
+            <div class="analytics-pattern-add-row">
+                <input type="text" class="analytics-pattern-input" placeholder="Добавить паттерн (подстрока в имени триггера)...">
+                <button type="button" class="analytics-pattern-add-btn" data-group-id="${g.id}"><i class="fa-solid fa-plus"></i></button>
+            </div>
+        </div>
+    `).join('');
+
+    // Удаление группы целиком
+    container.querySelectorAll('.analytics-group-delete-btn').forEach(btn => {
+        btn.addEventListener('click', async () => {
+            const groupId = btn.getAttribute('data-group-id');
+            const groupName = btn.getAttribute('data-group-name');
+            if (!confirm(`Удалить группу "${groupName}" вместе со всеми её паттернами?`)) return;
+
+            try {
+                const res = await fetch(`/api/analytics/groups/${groupId}`, { method: 'DELETE' });
+                if (res.ok) {
+                    showToast('Группа удалена');
+                    loadAnalyticsGroups();
+                    loadAnalyticsMiniChart();
+                } else {
+                    showToast('Не удалось удалить группу', 'error');
+                }
+            } catch (e) {
+                showToast('Ошибка соединения', 'error');
+            }
+        });
+    });
+
+    // Удаление отдельного паттерна
+    container.querySelectorAll('.pattern-tag-remove').forEach(icon => {
+        icon.addEventListener('click', async () => {
+            const patternId = icon.getAttribute('data-pattern-id');
+            try {
+                const res = await fetch(`/api/analytics/patterns/${patternId}`, { method: 'DELETE' });
+                if (res.ok) {
+                    loadAnalyticsGroups();
+                    loadAnalyticsMiniChart();
+                } else {
+                    showToast('Не удалось удалить паттерн', 'error');
+                }
+            } catch (e) {
+                showToast('Ошибка соединения', 'error');
+            }
+        });
+    });
+
+    // Добавление паттерна в группу
+    container.querySelectorAll('.analytics-group-block').forEach(block => {
+        const groupId = block.getAttribute('data-group-id');
+        const input = block.querySelector('.analytics-pattern-input');
+        const addBtn = block.querySelector('.analytics-pattern-add-btn');
+
+        const submitPattern = async () => {
+            const pattern = input.value.trim();
+            if (!pattern) return;
+
+            try {
+                const res = await fetch(`/api/analytics/groups/${groupId}/patterns`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ pattern })
+                });
+                if (res.ok) {
+                    input.value = '';
+                    loadAnalyticsGroups();
+                    loadAnalyticsMiniChart();
+                } else {
+                    const result = await res.json();
+                    showToast(result.message || 'Не удалось добавить паттерн', 'error');
+                }
+            } catch (e) {
+                showToast('Ошибка соединения', 'error');
+            }
+        };
+
+        addBtn.addEventListener('click', submitPattern);
+        input.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                submitPattern();
+            }
+        });
+    });
+}
+
+function initAnalyticsGroupForm() {
+    const form = document.getElementById('analytics-group-form');
+    if (!form) return;
+
+    form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const nameInput = document.getElementById('analytics-group-name');
+        const colorInput = document.getElementById('analytics-group-color');
+        const name = nameInput.value.trim();
+
+        if (!name) {
+            showToast('Введите название группы', 'error');
+            return;
+        }
+
+        try {
+            const res = await fetch('/api/analytics/groups', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name, color: colorInput.value })
+            });
+            const result = await res.json();
+
+            if (res.ok) {
+                showToast('Группа успешно создана');
+                nameInput.value = '';
+                colorInput.value = '#3b82f6';
+                loadAnalyticsGroups();
+                loadAnalyticsMiniChart();
+            } else {
+                showToast(result.message || 'Не удалось создать группу', 'error');
+            }
+        } catch (e) {
+            showToast('Ошибка соединения', 'error');
         }
     });
 }

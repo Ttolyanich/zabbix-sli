@@ -107,7 +107,26 @@ def init_db():
             is_incident INTEGER NOT NULL DEFAULT 1
         )
     ''')
-    
+
+    # BI-аналитика: группы (типы) инцидентов и паттерны для автоклассификации
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS analytics_groups (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT UNIQUE NOT NULL,
+            color TEXT NOT NULL DEFAULT '#3b82f6',
+            sort_order INTEGER NOT NULL DEFAULT 0,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS analytics_group_patterns (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            group_id INTEGER NOT NULL REFERENCES analytics_groups(id) ON DELETE CASCADE,
+            pattern TEXT NOT NULL,
+            UNIQUE(group_id, pattern)
+        )
+    ''')
+
     # Дефолтные настройки
     default_settings = {
         'zabbix_url': '',
@@ -422,3 +441,76 @@ def save_category_override(eventid, category):
         ''', (eventid, category))
     conn.commit()
     conn.close()
+
+# === BI-аналитика: группы (типы) инцидентов и автоклассификация по паттернам ===
+
+def get_analytics_groups():
+    """Возвращает список групп с их паттернами: [{id, name, color, patterns: [str, ...]}, ...]."""
+    conn = get_db_connection()
+    groups = conn.execute(
+        'SELECT id, name, color FROM analytics_groups ORDER BY sort_order ASC, name ASC'
+    ).fetchall()
+    patterns = conn.execute(
+        'SELECT id, group_id, pattern FROM analytics_group_patterns ORDER BY pattern ASC'
+    ).fetchall()
+    conn.close()
+
+    patterns_by_group = {}
+    for p in patterns:
+        patterns_by_group.setdefault(p['group_id'], []).append({'id': p['id'], 'pattern': p['pattern']})
+
+    return [
+        {
+            'id': g['id'],
+            'name': g['name'],
+            'color': g['color'],
+            'patterns': patterns_by_group.get(g['id'], [])
+        }
+        for g in groups
+    ]
+
+def create_analytics_group(name, color='#3b82f6'):
+    conn = get_db_connection()
+    try:
+        cursor = conn.execute(
+            'INSERT INTO analytics_groups (name, color, sort_order) VALUES (?, ?, (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM analytics_groups))',
+            (name.strip(), color)
+        )
+        conn.commit()
+        return cursor.lastrowid
+    except sqlite3.IntegrityError:
+        return None
+    finally:
+        conn.close()
+
+def delete_analytics_group(group_id):
+    conn = get_db_connection()
+    conn.execute('DELETE FROM analytics_groups WHERE id = ?', (group_id,))
+    conn.commit()
+    conn.close()
+
+def add_analytics_pattern(group_id, pattern):
+    conn = get_db_connection()
+    try:
+        conn.execute(
+            'INSERT OR IGNORE INTO analytics_group_patterns (group_id, pattern) VALUES (?, ?)',
+            (group_id, pattern.strip())
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+def delete_analytics_pattern(pattern_id):
+    conn = get_db_connection()
+    conn.execute('DELETE FROM analytics_group_patterns WHERE id = ?', (pattern_id,))
+    conn.commit()
+    conn.close()
+
+def classify_analytics_group(incident_name, groups):
+    """Находит первую группу, чей паттерн содержится в имени инцидента (без учета регистра)."""
+    name_lower = incident_name.lower()
+    for g in groups:
+        for p in g['patterns']:
+            if p['pattern'].lower() in name_lower:
+                return g
+    return None

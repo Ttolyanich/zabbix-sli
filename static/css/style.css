@@ -1495,6 +1495,60 @@ body {
     white-space: normal;
 }
 
+/* Обертка таблицы паттернов: тонкий стилизованный скроллбар вместо дефолтного,
+   "прилипающая" шапка и подсветка строки при наведении */
+.patterns-table-container {
+    max-height: 250px;
+    overflow-y: auto;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    margin-top: 10px;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-color) transparent;
+}
+
+.patterns-table-container::-webkit-scrollbar {
+    width: 6px;
+}
+
+.patterns-table-container::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.patterns-table-container::-webkit-scrollbar-thumb {
+    background-color: var(--border-color);
+    border-radius: 3px;
+}
+
+.patterns-table-container::-webkit-scrollbar-thumb:hover {
+    background-color: var(--text-muted);
+}
+
+#patterns-table thead th {
+    position: sticky;
+    top: 0;
+    background-color: var(--bg-card);
+    z-index: 1;
+}
+
+#patterns-table tbody tr {
+    transition: background-color var(--transition-speed);
+}
+
+#patterns-table tbody tr:hover {
+    background-color: var(--bg-hover);
+}
+
+#patterns-table tbody tr:last-child td {
+    border-bottom: none;
+}
+
+/* .checkbox-container обычно display:block (чекбокс + подпись в форме настроек),
+   но здесь он один в ячейке с text-align:center — без inline-block центрирование не работает */
+#patterns-table .checkbox-container {
+    display: inline-block;
+}
+
 .pattern-delete-btn {
     background: none;
     border: none;

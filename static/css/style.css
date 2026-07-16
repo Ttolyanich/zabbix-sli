@@ -1483,6 +1483,18 @@ body {
     padding: 10px 12px;
 }
 
+/* .incidents-table задает min-width: 1150px и min-width колонки-названия под 10-колоночный
+   журнал инцидентов сервера — для простой 3-колоночной таблицы паттернов это лишнее и ломает раскладку */
+#patterns-table {
+    min-width: 0;
+}
+
+#patterns-table td:nth-child(2) {
+    min-width: 0;
+    max-width: none;
+    white-space: normal;
+}
+
 .pattern-delete-btn {
     background: none;
     border: none;

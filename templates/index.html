@@ -368,7 +368,22 @@
                         <div class="card">
                             <div class="card-header-icon zbx-color"><i class="fa-solid fa-plug"></i></div>
                             <h3>Интеграция с Zabbix</h3>
-                            
+
+                            <div class="sync-status-panel" id="zabbix-sync-status-panel">
+                                <div class="sync-status-row">
+                                    <span class="sync-status-label"><i class="fa-solid fa-arrows-rotate"></i> Последняя попытка</span>
+                                    <span class="sync-status-value" id="sync-status-last-attempt">Загрузка...</span>
+                                </div>
+                                <div class="sync-status-row">
+                                    <span class="sync-status-label"><i class="fa-solid fa-check"></i> Последняя успешная</span>
+                                    <span class="sync-status-value" id="sync-status-last-success">Загрузка...</span>
+                                </div>
+                                <div class="sync-status-row sync-status-error-row" id="sync-status-error-row" style="display: none;">
+                                    <span class="sync-status-label"><i class="fa-solid fa-triangle-exclamation"></i> Ошибка</span>
+                                    <span class="sync-status-value error" id="sync-status-error-text"></span>
+                                </div>
+                            </div>
+
                             <div class="form-group">
                                 <label for="zabbix_url">Адрес Zabbix API (URL)</label>
                                 <input type="url" id="zabbix_url" placeholder="https://zabbix.company.com" autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-bwignore="true" data-form-type="other">

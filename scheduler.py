@@ -48,17 +48,22 @@ def auto_detect_client(host_data):
 def sync_zabbix_data():
     """
     Основная функция синхронизации всех хостов и данных из Zabbix в локальную БД.
+    Возвращает {'status': 'ok'|'error'|'not_configured', 'message': str} — статус
+    также сохраняется в БД (database.record_sync_result), чтобы его можно было
+    посмотреть в интерфейсе независимо от того, кто инициировал синхронизацию
+    (фоновый планировщик или кнопка "Синхронизировать").
     """
     settings = database.get_settings()
     url = settings.get('zabbix_url')
     token = settings.get('zabbix_token')
     user = settings.get('zabbix_user')
     password = settings.get('zabbix_password')
-    
+
     if not url:
         print("[Scheduler] Zabbix URL not configured, skipping sync.")
-        return
-        
+        database.record_sync_result('not_configured')
+        return {'status': 'not_configured', 'message': 'Zabbix не настроен: не указан адрес API'}
+
     try:
         print("[Scheduler] Connecting to Zabbix API...")
         api = ZabbixAPI(url, token, user, password)
@@ -131,11 +136,12 @@ def sync_zabbix_data():
         # 3. Загружаем актуальные привязки хостов из БД для сбора инцидентов (только активные)
         mappings = database.get_mappings(only_active=True)
         hostids = [m['zabbix_hostid'] for m in mappings]
-        
+
         if not hostids:
             print("[Scheduler] No hosts to sync incidents for.")
-            return
-            
+            database.record_sync_result('ok')
+            return {'status': 'ok', 'message': 'Хосты синхронизированы, привязок к клиентам для сбора инцидентов пока нет'}
+
         # Синхронизируем инциденты за последние 35 дней
         time_till = int(time.time())
         time_from = time_till - (35 * 24 * 3600)
@@ -164,9 +170,14 @@ def sync_zabbix_data():
                 
         database.cache_incidents(incidents)
         print(f"[Scheduler] Successfully synced and cached {len(incidents)} incidents.")
-        
+        database.record_sync_result('ok')
+        return {'status': 'ok', 'message': f'Синхронизировано {len(incidents)} инцидентов по {len(hostids)} хостам'}
+
     except Exception as e:
-        print(f"[Scheduler] Error during Zabbix sync: {str(e)}")
+        error_msg = str(e)
+        print(f"[Scheduler] Error during Zabbix sync: {error_msg}")
+        database.record_sync_result('error', error_msg)
+        return {'status': 'error', 'message': error_msg}
 
 def check_and_send_scheduled_reports():
     """

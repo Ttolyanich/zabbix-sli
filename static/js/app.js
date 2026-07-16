@@ -29,7 +29,12 @@ document.addEventListener('DOMContentLoaded', () => {
     loadDashboardData();
     loadMappings();
     loadSettings();
-    
+    loadSyncStatus();
+    // Лёгкий поллинг раз в минуту — чтобы статус в сайдбаре отражал и фоновые
+    // синхронизации планировщика (раз в 10 мин), а не только ручные нажатия
+    setInterval(loadSyncStatus, 60000);
+
+
     // Проверка дефолтного пароля админа
     if (window.currentUser && window.currentUser.isDefaultAdmin) {
         showToast('Внимание! Вы вошли с паролем по умолчанию (admin). Пожалуйста, смените его в настройках!', 'error');
@@ -1533,24 +1538,30 @@ function initEventHandlers() {
     manualSyncBtn.addEventListener('click', async () => {
         manualSyncBtn.disabled = true;
         syncStatusEl.classList.add('syncing');
+        syncStatusEl.classList.remove('error', 'stale');
         syncStatusEl.querySelector('span').innerText = 'Синхронизация...';
-        
+
         try {
             const response = await fetch('/api/sync', { method: 'POST' });
             const res = await response.json();
-            
+
             if (res.status === 'success') {
                 showToast('Данные Zabbix успешно синхронизированы!');
                 loadDashboardData();
             } else {
+                // Раньше эта ветка молча терялась: finally ниже всегда переписывал
+                // текст обратно на "Данные обновлены" независимо от результата
                 showToast(res.message, 'error');
             }
         } catch (e) {
-            showToast('Сбой синхронизации', 'error');
+            showToast('Сбой синхронизации: нет соединения с сервером', 'error');
         } finally {
             manualSyncBtn.disabled = false;
             syncStatusEl.classList.remove('syncing');
-            syncStatusEl.querySelector('span').innerText = 'Данные обновлены';
+            // Настоящий статус (ok/error/stale) подтягиваем из БД, а не угадываем
+            // по факту получения HTTP-ответа — так сайдбар и панель в Настройках
+            // всегда согласованы между собой
+            loadSyncStatus();
         }
     });
     
@@ -1799,6 +1810,104 @@ function initEventHandlers() {
     
     // Инициализация групповых сбоев и паттернов исключений
     initBulkActionsAndPatterns();
+}
+
+// === Статус синхронизации с Zabbix (сайдбар + панель в Настройках) ===
+
+async function loadSyncStatus() {
+    try {
+        const response = await fetch('/api/sync-status');
+        const data = await response.json();
+        renderSyncStatus(data);
+    } catch (e) {
+        // Не критично для остального интерфейса — просто оставляем прошлое состояние
+    }
+}
+
+function renderSyncStatus(data) {
+    const now = Math.floor(Date.now() / 1000);
+    // Фоновый планировщик синхронизирует раз в 10 минут — если статус "ok",
+    // но последний успех старше двух интервалов, что-то не так с самим
+    // планировщиком (например, процесс завис), хотя явной ошибки не было
+    const STALE_THRESHOLD_SEC = 20 * 60;
+    const isStale = data.status === 'ok' && data.last_success_at && (now - data.last_success_at) > STALE_THRESHOLD_SEC;
+
+    let level = 'muted';
+    let sidebarText = 'Данные обновлены';
+    let sidebarIcon = 'fa-solid fa-rotate';
+
+    if (data.status === 'never') {
+        sidebarText = 'Синхронизация ещё не запускалась';
+        sidebarIcon = 'fa-solid fa-clock';
+    } else if (data.status === 'not_configured') {
+        sidebarText = 'Zabbix не настроен';
+        sidebarIcon = 'fa-solid fa-plug-circle-xmark';
+    } else if (data.status === 'error') {
+        level = 'error';
+        sidebarText = 'Ошибка синхронизации';
+        sidebarIcon = 'fa-solid fa-triangle-exclamation';
+    } else if (isStale) {
+        level = 'stale';
+        sidebarText = 'Нет свежих данных';
+        sidebarIcon = 'fa-solid fa-triangle-exclamation';
+    } else if (data.status === 'ok') {
+        level = 'ok';
+        sidebarText = 'Данные обновлены';
+        sidebarIcon = 'fa-solid fa-rotate';
+    }
+
+    // Сайдбар
+    const sidebarEl = document.getElementById('sync-status');
+    if (sidebarEl) {
+        sidebarEl.classList.remove('error', 'stale');
+        if (level === 'error' || level === 'stale') {
+            sidebarEl.classList.add(level);
+        }
+        const icon = sidebarEl.querySelector('i');
+        if (icon) icon.className = sidebarIcon;
+        sidebarEl.querySelector('span').innerText = sidebarText;
+
+        const tooltipParts = [];
+        if (data.last_success_at) tooltipParts.push(`Последняя успешная синхронизация: ${formatDateTime(data.last_success_at)}`);
+        if (data.status === 'error' && data.error) tooltipParts.push(`Ошибка: ${data.error}`);
+        sidebarEl.title = tooltipParts.join('\n');
+    }
+
+    // Подробная панель в карточке "Интеграция с Zabbix"
+    const lastAttemptEl = document.getElementById('sync-status-last-attempt');
+    const lastSuccessEl = document.getElementById('sync-status-last-success');
+    const errorRow = document.getElementById('sync-status-error-row');
+    const errorTextEl = document.getElementById('sync-status-error-text');
+
+    if (lastAttemptEl) {
+        if (data.last_attempt_at) {
+            const statusLabel = data.status === 'error' ? ' — ошибка' : data.status === 'not_configured' ? ' — не настроено' : ' — успешно';
+            lastAttemptEl.innerText = formatDateTime(data.last_attempt_at) + statusLabel;
+            lastAttemptEl.className = 'sync-status-value ' + (data.status === 'error' ? 'error' : data.status === 'ok' ? 'ok' : 'muted');
+        } else {
+            lastAttemptEl.innerText = 'Ещё не выполнялась';
+            lastAttemptEl.className = 'sync-status-value muted';
+        }
+    }
+
+    if (lastSuccessEl) {
+        if (data.last_success_at) {
+            lastSuccessEl.innerText = formatDateTime(data.last_success_at);
+            lastSuccessEl.className = 'sync-status-value ' + (isStale ? 'stale' : 'ok');
+        } else {
+            lastSuccessEl.innerText = 'Ещё не было';
+            lastSuccessEl.className = 'sync-status-value muted';
+        }
+    }
+
+    if (errorRow && errorTextEl) {
+        if (data.status === 'error' && data.error) {
+            errorRow.style.display = 'flex';
+            errorTextEl.innerText = data.error;
+        } else {
+            errorRow.style.display = 'none';
+        }
+    }
 }
 
 function initTheme() {

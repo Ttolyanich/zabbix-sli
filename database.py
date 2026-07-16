@@ -1,6 +1,7 @@
 import sqlite3
 import os
 import secrets
+import time
 from flask import g
 from werkzeug.security import generate_password_hash, check_password_hash
 
@@ -173,6 +174,38 @@ def save_settings(settings_dict):
         conn.execute('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)', (key, str(val)))
     conn.commit()
     conn.close()
+
+# === Статус синхронизации с Zabbix ===
+# Хранится в той же таблице settings (ключи с префиксом sync_), но через
+# отдельные функции, а не get_settings()/save_settings() — это не
+# пользовательские настройки, а служебный статус последней попытки/успеха.
+
+_SYNC_STATUS_KEYS = ('sync_last_status', 'sync_last_attempt_at', 'sync_last_success_at', 'sync_last_error')
+
+def record_sync_result(status, error_message=None):
+    """status: 'ok' | 'error' | 'not_configured'."""
+    now = str(int(time.time()))
+    conn = get_db_connection()
+    conn.execute('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)', ('sync_last_status', status))
+    conn.execute('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)', ('sync_last_attempt_at', now))
+    conn.execute('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)', ('sync_last_error', error_message or ''))
+    if status == 'ok':
+        conn.execute('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)', ('sync_last_success_at', now))
+    conn.commit()
+    conn.close()
+
+def get_sync_status():
+    conn = get_db_connection()
+    placeholders = ','.join('?' for _ in _SYNC_STATUS_KEYS)
+    rows = conn.execute(f'SELECT key, value FROM settings WHERE key IN ({placeholders})', _SYNC_STATUS_KEYS).fetchall()
+    conn.close()
+    values = {row['key']: row['value'] for row in rows}
+    return {
+        'status': values.get('sync_last_status') or 'never',
+        'last_attempt_at': int(values['sync_last_attempt_at']) if values.get('sync_last_attempt_at') else None,
+        'last_success_at': int(values['sync_last_success_at']) if values.get('sync_last_success_at') else None,
+        'error': values.get('sync_last_error') or None
+    }
 
 def get_mappings(only_active=False):
     conn = get_db_connection()

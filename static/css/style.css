@@ -210,6 +210,19 @@ body {
     color: var(--accent);
 }
 
+.sync-status.error {
+    color: var(--danger);
+    cursor: help;
+}
+
+.sync-status.error i {
+    color: var(--danger);
+}
+
+.sync-status.stale i {
+    color: var(--warning);
+}
+
 @keyframes spin {
     0% { transform: rotate(0deg); }
     100% { transform: rotate(360deg); }
@@ -235,6 +248,62 @@ body {
 .sync-btn:hover {
     background-color: var(--bg-hover);
     border-color: var(--text-secondary);
+}
+
+/* Панель статуса синхронизации в карточке "Интеграция с Zabbix" */
+.sync-status-panel {
+    background-color: var(--bg-accordion);
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    padding: 12px 14px;
+    margin-bottom: 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.sync-status-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    font-size: 12px;
+}
+
+.sync-status-label {
+    color: var(--text-secondary);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
+}
+
+.sync-status-label i {
+    font-size: 11px;
+    width: 12px;
+    text-align: center;
+}
+
+.sync-status-value {
+    color: var(--text-primary);
+    font-weight: 600;
+    text-align: right;
+}
+
+.sync-status-value.ok { color: var(--success); }
+.sync-status-value.error { color: var(--danger); }
+.sync-status-value.stale { color: var(--warning); }
+.sync-status-value.muted { color: var(--text-muted); font-weight: 500; }
+
+.sync-status-error-row {
+    padding-top: 8px;
+    border-top: 1px solid var(--border-color);
+    align-items: flex-start;
+}
+
+.sync-status-error-row .sync-status-value {
+    text-align: right;
+    word-break: break-word;
 }
 
 /* Основной контент */

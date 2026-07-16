@@ -367,10 +367,20 @@ def tv_data():
 @login_required
 def manual_sync():
     try:
-        scheduler.sync_zabbix_data()
-        return jsonify({"status": "success", "message": "Синхронизация успешно завершена"})
+        result = scheduler.sync_zabbix_data()
+        if result and result.get('status') == 'error':
+            return jsonify({"status": "error", "message": f"Ошибка синхронизации: {result['message']}"}), 502
+        if result and result.get('status') == 'not_configured':
+            return jsonify({"status": "error", "message": result['message']}), 400
+        message = result['message'] if result else "Синхронизация успешно завершена"
+        return jsonify({"status": "success", "message": message})
     except Exception as e:
         return jsonify({"status": "error", "message": f"Ошибка синхронизации: {str(e)}"}), 500
+
+@app.route('/api/sync-status', methods=['GET'])
+@login_required
+def get_sync_status():
+    return jsonify(database.get_sync_status())
 
 @app.route('/api/send-email', methods=['POST'])
 @login_required

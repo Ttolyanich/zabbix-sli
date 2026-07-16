@@ -700,13 +700,23 @@
                                 <input type="password" id="new_user_password" required placeholder="Введите пароль">
                             </div>
                             <div class="form-group">
-                                <label for="new_user_role">Роль</label>
-                                <div class="select-wrapper">
-                                    <select id="new_user_role">
-                                        <option value="user">Пользователь (Просмотр / Комментарии)</option>
-                                        <option value="admin">Администратор (Полные права)</option>
-                                    </select>
+                                <label>Роль</label>
+                                <div class="custom-select-container" id="new-user-role-picker">
+                                    <div class="custom-select-trigger">
+                                        <span class="custom-select-value">Пользователь (Просмотр / Комментарии)</span>
+                                        <i class="fa-solid fa-chevron-down"></i>
+                                    </div>
+                                    <div class="custom-select-dropdown">
+                                        <div class="custom-select-options">
+                                            <div class="custom-select-option selected" data-value="user">Пользователь (Просмотр / Комментарии)</div>
+                                            <div class="custom-select-option" data-value="admin">Администратор (Полные права)</div>
+                                        </div>
+                                    </div>
                                 </div>
+                                <select id="new_user_role" style="display: none;">
+                                    <option value="user">Пользователь (Просмотр / Комментарии)</option>
+                                    <option value="admin">Администратор (Полные права)</option>
+                                </select>
                             </div>
                             <button type="submit" class="save-settings-btn" style="margin-top: 15px; width: 100%;">
                                 <i class="fa-solid fa-plus"></i> Создать аккаунт

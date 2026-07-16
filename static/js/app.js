@@ -22,6 +22,8 @@ document.addEventListener('DOMContentLoaded', () => {
     initEventHandlers();
     initCustomSearchableSelect();
     initAnalyticsGroupForm();
+    initSimpleSelectGlobalCloser();
+    initNewUserRolePicker();
     
     // По умолчанию загружаем данные
     loadDashboardData();
@@ -1894,12 +1896,21 @@ async function loadUsersList() {
                        <i class="fa-solid fa-trash-can"></i> Удалить
                    </button>`;
 
+            const roleOptions = [
+                { value: 'user', label: 'Пользователь' },
+                { value: 'admin', label: 'Администратор' }
+            ];
             const roleHtml = isSelf
                 ? `<span class="user-role-badge ${roleClass}">${roleName}</span>`
-                : `<select class="role-select ${roleClass}" data-userid="${user.id}" data-username="${user.username}">
-                       <option value="user" ${user.role === 'user' ? 'selected' : ''}>Пользователь</option>
-                       <option value="admin" ${user.role === 'admin' ? 'selected' : ''}>Администратор</option>
-                   </select>`;
+                : `<div class="custom-select-container role-picker ${roleClass}" data-userid="${user.id}" data-username="${user.username}" data-value="${user.role}">
+                       <div class="custom-select-trigger">
+                           <span class="custom-select-value">${roleName}</span>
+                           <i class="fa-solid fa-chevron-down"></i>
+                       </div>
+                       <div class="custom-select-dropdown">
+                           <div class="custom-select-options">${buildSimpleSelectOptionsHtml(roleOptions, user.role)}</div>
+                       </div>
+                   </div>`;
 
             tr.innerHTML = `
                 <td>${user.id}</td>
@@ -1910,12 +1921,11 @@ async function loadUsersList() {
             tbody.appendChild(tr);
         });
 
-        tbody.querySelectorAll('.role-select').forEach(select => {
-            select.addEventListener('change', async (e) => {
-                const userId = select.getAttribute('data-userid');
-                const username = select.getAttribute('data-username');
-                const newRole = e.target.value;
+        tbody.querySelectorAll('.role-picker').forEach(picker => {
+            const userId = picker.getAttribute('data-userid');
+            const username = picker.getAttribute('data-username');
 
+            wireSimpleSelect(picker, async (newRole) => {
                 try {
                     const res = await fetch(`/api/users/${userId}/role`, {
                         method: 'POST',
@@ -1932,8 +1942,8 @@ async function loadUsersList() {
                 } catch (err) {
                     showToast('Ошибка соединения', 'error');
                 }
-                // В обоих случаях перерисовываем из данных сервера: цвет .role-select
-                // завязан на CSS-класс admin/user, простой откат select.value его не обновит
+                // В обоих случаях перерисовываем из данных сервера: цвет .role-picker
+                // завязан на CSS-класс admin/user на контейнере, локальный откат его не обновит
                 loadUsersList();
             });
         });
@@ -1961,6 +1971,78 @@ async function loadUsersList() {
         });
     } catch (err) {
         showToast('Не удалось загрузить список пользователей', 'error');
+    }
+}
+
+// === Простой кастомный select (без поиска) — переиспользует ту же div-разметку
+// и стили, что и custom-select-container для хоста Zabbix, но без строки поиска.
+// Используется там, где нативный <select> не получается стилизовать (попап опций
+// браузер рисует сам и не подчиняется CSS ни в одном движке надежно) ===
+
+function buildSimpleSelectOptionsHtml(options, initialValue) {
+    return options.map(o => `
+        <div class="custom-select-option${o.value === initialValue ? ' selected' : ''}" data-value="${o.value}">${o.label}</div>
+    `).join('');
+}
+
+// Навешивает обработчики на уже отрисованный .custom-select-container.
+// onSelect(value) вызывается при выборе пункта.
+function wireSimpleSelect(container, onSelect) {
+    const trigger = container.querySelector('.custom-select-trigger');
+    const dropdown = container.querySelector('.custom-select-dropdown');
+    const valueEl = container.querySelector('.custom-select-value');
+
+    trigger.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const isOpen = container.classList.contains('open');
+        document.querySelectorAll('.custom-select-container.open').forEach(c => {
+            if (c !== container) c.classList.remove('open');
+        });
+        container.classList.toggle('open', !isOpen);
+    });
+
+    dropdown.addEventListener('click', (e) => e.stopPropagation());
+
+    container.querySelectorAll('.custom-select-option').forEach(opt => {
+        opt.addEventListener('click', () => {
+            const value = opt.getAttribute('data-value');
+            valueEl.textContent = opt.textContent.trim();
+            container.querySelectorAll('.custom-select-option').forEach(o => o.classList.remove('selected'));
+            opt.classList.add('selected');
+            container.classList.remove('open');
+            container.setAttribute('data-value', value);
+            onSelect(value);
+        });
+    });
+}
+
+// Один общий обработчик на документе закрывает любой открытый простой select при клике мимо
+function initSimpleSelectGlobalCloser() {
+    document.addEventListener('click', () => {
+        document.querySelectorAll('.custom-select-container.open').forEach(c => c.classList.remove('open'));
+    });
+}
+
+// Роль в форме "Создать пользователя": кастомный select синхронизирован со скрытым
+// нативным <select id="new_user_role">, чтобы submit-обработчик и form.reset() работали без изменений
+function initNewUserRolePicker() {
+    const picker = document.getElementById('new-user-role-picker');
+    const nativeSelect = document.getElementById('new_user_role');
+    if (!picker || !nativeSelect) return;
+
+    wireSimpleSelect(picker, (value) => {
+        nativeSelect.value = value;
+    });
+
+    const form = document.getElementById('create-user-form');
+    if (form) {
+        form.addEventListener('reset', () => {
+            // Возвращаем кастомный select к состоянию по умолчанию вслед за нативным
+            setTimeout(() => {
+                const defaultOption = picker.querySelector(`.custom-select-option[data-value="${nativeSelect.value}"]`);
+                if (defaultOption) defaultOption.click();
+            }, 0);
+        });
     }
 }
 

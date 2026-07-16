@@ -1264,41 +1264,53 @@ body {
     border: 1px solid rgba(59, 130, 246, 0.25);
 }
 
-/* Выпадающий список смены роли (недоступен для собственной учетной записи —
-   там остается статичный .user-role-badge) */
-.role-select {
-    font-family: var(--font-main);
+/* Выпадающий список смены роли — кастомный (не нативный <select>, у которого
+   попап опций браузер стилизовать не дает); недоступен для собственной
+   учетной записи — там остается статичный .user-role-badge */
+/* Двойной класс поднимает специфичность выше .custom-select-container { width: 100% },
+   которое иначе перебивает это правило из-за более позднего порядка в файле */
+.custom-select-container.role-picker {
+    width: auto;
+    display: inline-block;
+}
+
+.role-picker .custom-select-trigger {
+    padding: 4px 10px;
     font-size: 11px;
     font-weight: 600;
     text-transform: uppercase;
-    padding: 3px 24px 3px 8px;
     border-radius: 4px;
-    cursor: pointer;
-    appearance: none;
-    -webkit-appearance: none;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='%239ca3af' d='M0 0l5 6 5-6z'/%3E%3C/svg%3E");
-    background-repeat: no-repeat;
-    background-position: right 8px center;
-    color-scheme: var(--color-scheme);
+    gap: 10px;
 }
 
-.role-select.admin {
+.role-picker .custom-select-trigger i {
+    font-size: 9px;
+}
+
+.role-picker.admin .custom-select-trigger {
     background-color: rgba(239, 68, 68, 0.15);
     color: #f87171;
-    border: 1px solid rgba(239, 68, 68, 0.25);
+    border-color: rgba(239, 68, 68, 0.25);
 }
 
-.role-select.user {
+.role-picker.user .custom-select-trigger {
     background-color: rgba(59, 130, 246, 0.15);
     color: #60a5fa;
-    border: 1px solid rgba(59, 130, 246, 0.25);
+    border-color: rgba(59, 130, 246, 0.25);
 }
 
-.role-select option {
-    background-color: var(--bg-modal);
-    color: var(--text-primary);
+/* Дропдаун роли короче стандартного и не должен растягиваться под ширину триггера */
+.role-picker .custom-select-dropdown {
+    width: max-content;
+    min-width: 100%;
+}
+
+.role-picker .custom-select-option {
+    font-size: 12px;
     text-transform: none;
     font-weight: 500;
+    padding: 8px 16px;
+    white-space: nowrap;
 }
 
 .delete-user-btn {
@@ -1605,28 +1617,17 @@ body {
     min-width: 0;
 }
 
+/* Без overflow-x/y: auto — таблица и так умещается по ширине, а из-за overflow-x:auto
+   overflow-y тоже неявно становится auto (так работает спецификация CSS) и обрезает
+   снизу выпадающий список роли в .role-picker для строк у нижнего края таблицы */
 .users-table-container {
     margin-top: 20px;
-    overflow-x: auto;
-    scrollbar-width: thin;
-    scrollbar-color: var(--border-color) transparent;
 }
 
-.users-table-container::-webkit-scrollbar {
-    height: 6px;
-}
-
-.users-table-container::-webkit-scrollbar-track {
-    background: transparent;
-}
-
-.users-table-container::-webkit-scrollbar-thumb {
-    background-color: var(--border-color);
-    border-radius: 3px;
-}
-
-.users-table-container::-webkit-scrollbar-thumb:hover {
-    background-color: var(--text-muted);
+/* На случай аномально длинного логина без пробелов — переносим текст,
+   а не расширяем таблицу за пределы карточки */
+#users-table td:nth-child(2) {
+    overflow-wrap: anywhere;
 }
 
 #users-table tbody tr {

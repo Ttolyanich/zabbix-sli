@@ -362,7 +362,7 @@
 
             <!-- ВКЛАДКА "НАСТРОЙКИ" -->
             <section id="tab-settings" class="tab-content">
-                <form id="settings-form">
+                <form id="settings-form" autocomplete="off">
                     <div class="settings-grid">
                         <!-- Zabbix -->
                         <div class="card">
@@ -371,22 +371,22 @@
                             
                             <div class="form-group">
                                 <label for="zabbix_url">Адрес Zabbix API (URL)</label>
-                                <input type="url" id="zabbix_url" placeholder="https://zabbix.company.com">
+                                <input type="url" id="zabbix_url" placeholder="https://zabbix.company.com" autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-bwignore="true" data-form-type="other">
                             </div>
                             <div class="form-group">
                                 <label for="zabbix_token">Токен доступа API (Token)</label>
-                                <input type="password" id="zabbix_token" placeholder="Введите токен Zabbix Token">
+                                <input type="password" id="zabbix_token" placeholder="Введите токен Zabbix Token" autocomplete="new-password" data-lpignore="true" data-1p-ignore="true" data-bwignore="true" data-form-type="other">
                                 <span class="help-text">Если используется авторизация по токену (рекомендуется)</span>
                             </div>
                             <div class="divider">ИЛИ через логин / пароль</div>
                             <div class="form-row">
                                 <div class="form-group">
                                     <label for="zabbix_user">Пользователь</label>
-                                    <input type="text" id="zabbix_user">
+                                    <input type="text" id="zabbix_user" autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-bwignore="true" data-form-type="other">
                                 </div>
                                 <div class="form-group">
                                     <label for="zabbix_password">Пароль</label>
-                                    <input type="password" id="zabbix_password">
+                                    <input type="password" id="zabbix_password" autocomplete="new-password" data-lpignore="true" data-1p-ignore="true" data-bwignore="true" data-form-type="other">
                                 </div>
                             </div>
                         </div>
@@ -409,11 +409,11 @@
                             <div class="form-row">
                                 <div class="form-group">
                                     <label for="smtp_user">Пользователь SMTP (Email)</label>
-                                    <input type="email" id="smtp_user" placeholder="alert@company.com">
+                                    <input type="email" id="smtp_user" placeholder="alert@company.com" autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-bwignore="true" data-form-type="other">
                                 </div>
                                 <div class="form-group">
                                     <label for="smtp_password">Пароль SMTP</label>
-                                    <input type="password" id="smtp_password">
+                                    <input type="password" id="smtp_password" autocomplete="new-password" data-lpignore="true" data-1p-ignore="true" data-bwignore="true" data-form-type="other">
                                 </div>
                             </div>
                             <div class="form-row">
@@ -445,7 +445,7 @@
                             </div>
                             <div class="form-group">
                                 <label for="telegram_bot_token">Токен Telegram-бота</label>
-                                <input type="password" id="telegram_bot_token" placeholder="123456789:ABCdefGhIJKlmNoPQRsT">
+                                <input type="password" id="telegram_bot_token" placeholder="123456789:ABCdefGhIJKlmNoPQRsT" autocomplete="new-password" data-lpignore="true" data-1p-ignore="true" data-bwignore="true" data-form-type="other">
                             </div>
                             <div class="form-group">
                                 <label for="telegram_chat_id">Chat ID (ID группы / канала)</label>

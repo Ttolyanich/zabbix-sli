@@ -752,6 +752,20 @@ def delete_user(user_id):
         return jsonify({"status": "success", "message": msg})
     return jsonify({"status": "error", "message": msg}), 400
 
+@app.route('/api/users/<int:user_id>/role', methods=['POST'])
+@admin_required
+def change_user_role_route(user_id):
+    if user_id == session.get('user_id'):
+        return jsonify({"status": "error", "message": "Нельзя изменить роль собственной учетной записи"}), 400
+
+    data = request.json or {}
+    new_role = data.get('role')
+
+    success, msg = database.change_user_role(user_id, new_role)
+    if success:
+        return jsonify({"status": "success", "message": msg})
+    return jsonify({"status": "error", "message": msg}), 400
+
 if __name__ == '__main__':
     port = int(os.environ.get('BIND_PORT', os.environ.get('PORT', 5000)))
     # Включаем прослушивание на всех интерфейсах для развертывания

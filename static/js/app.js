@@ -1886,23 +1886,58 @@ async function loadUsersList() {
             const tr = document.createElement('tr');
             const roleClass = user.role === 'admin' ? 'admin' : 'user';
             const roleName = user.role === 'admin' ? 'Администратор' : 'Пользователь';
-            
+
             const isSelf = user.username === window.currentUser.username;
-            const deleteBtnHtml = isSelf 
+            const deleteBtnHtml = isSelf
                 ? '<span style="color: var(--text-muted); font-size: 12px; font-style: italic;">Это вы</span>'
                 : `<button class="delete-user-btn" data-userid="${user.id}" data-username="${user.username}" title="Удалить пользователя">
                        <i class="fa-solid fa-trash-can"></i> Удалить
                    </button>`;
-            
+
+            const roleHtml = isSelf
+                ? `<span class="user-role-badge ${roleClass}">${roleName}</span>`
+                : `<select class="role-select ${roleClass}" data-userid="${user.id}" data-username="${user.username}">
+                       <option value="user" ${user.role === 'user' ? 'selected' : ''}>Пользователь</option>
+                       <option value="admin" ${user.role === 'admin' ? 'selected' : ''}>Администратор</option>
+                   </select>`;
+
             tr.innerHTML = `
                 <td>${user.id}</td>
                 <td><b>${user.username}</b></td>
-                <td><span class="user-role-badge ${roleClass}">${roleName}</span></td>
+                <td>${roleHtml}</td>
                 <td style="text-align: right;">${deleteBtnHtml}</td>
             `;
             tbody.appendChild(tr);
         });
-        
+
+        tbody.querySelectorAll('.role-select').forEach(select => {
+            select.addEventListener('change', async (e) => {
+                const userId = select.getAttribute('data-userid');
+                const username = select.getAttribute('data-username');
+                const newRole = e.target.value;
+
+                try {
+                    const res = await fetch(`/api/users/${userId}/role`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ role: newRole })
+                    });
+                    const result = await res.json();
+
+                    if (res.ok) {
+                        showToast(result.message || `Роль пользователя ${username} обновлена`);
+                    } else {
+                        showToast(result.message || 'Не удалось изменить роль', 'error');
+                    }
+                } catch (err) {
+                    showToast('Ошибка соединения', 'error');
+                }
+                // В обоих случаях перерисовываем из данных сервера: цвет .role-select
+                // завязан на CSS-класс admin/user, простой откат select.value его не обновит
+                loadUsersList();
+            });
+        });
+
         tbody.querySelectorAll('.delete-user-btn').forEach(btn => {
             btn.addEventListener('click', async () => {
                 const userId = btn.getAttribute('data-userid');

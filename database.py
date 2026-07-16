@@ -421,6 +421,28 @@ def delete_user(user_id):
     conn.close()
     return True, "Пользователь успешно удален"
 
+def change_user_role(user_id, new_role):
+    if new_role not in ('admin', 'user'):
+        return False, "Недопустимая роль"
+
+    conn = get_db_connection()
+    row = conn.execute('SELECT role FROM users WHERE id = ?', (user_id,)).fetchone()
+    if not row:
+        conn.close()
+        return False, "Пользователь не найден"
+
+    # Запрещаем разжаловать последнего администратора
+    if row['role'] == 'admin' and new_role != 'admin':
+        admins_count = conn.execute("SELECT COUNT(*) FROM users WHERE role = 'admin'").fetchone()[0]
+        if admins_count <= 1:
+            conn.close()
+            return False, "Нельзя понизить роль единственного администратора"
+
+    conn.execute('UPDATE users SET role = ? WHERE id = ?', (new_role, user_id))
+    conn.commit()
+    conn.close()
+    return True, "Роль пользователя обновлена"
+
 # === Функции комментариев к инцидентам ===
 
 def save_incident_comment(eventid, comment, username):

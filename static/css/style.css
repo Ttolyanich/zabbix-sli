@@ -893,6 +893,19 @@ body {
     margin-bottom: 28px;
 }
 
+/* .flex-3/.flex-2 на карточках вкладки "Пользователи" не работают внутри CSS Grid
+   (flex: N — свойство flex-контейнеров), из-за чего список пользователей получал
+   такую же ширину, как узкая форма создания аккаунта, и таблица не помещалась */
+#tab-users .settings-grid {
+    grid-template-columns: minmax(320px, 3fr) minmax(300px, 2fr);
+}
+
+@media (max-width: 900px) {
+    #tab-users .settings-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
 .form-row {
     display: flex;
     flex-direction: column;
@@ -1547,6 +1560,55 @@ body {
    но здесь он один в ячейке с text-align:center — без inline-block центрирование не работает */
 #patterns-table .checkbox-container {
     display: inline-block;
+}
+
+/* Таблица пользователей: та же проблема, что и с #patterns-table — .incidents-table
+   задает min-width: 1150px под 10-колоночный журнал инцидентов, здесь всего 4 колонки */
+#users-table {
+    min-width: 0;
+}
+
+.users-table-container {
+    margin-top: 20px;
+    overflow-x: auto;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-color) transparent;
+}
+
+.users-table-container::-webkit-scrollbar {
+    height: 6px;
+}
+
+.users-table-container::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.users-table-container::-webkit-scrollbar-thumb {
+    background-color: var(--border-color);
+    border-radius: 3px;
+}
+
+.users-table-container::-webkit-scrollbar-thumb:hover {
+    background-color: var(--text-muted);
+}
+
+#users-table tbody tr {
+    transition: background-color var(--transition-speed);
+}
+
+#users-table tbody tr:hover {
+    background-color: var(--bg-hover);
+}
+
+#users-table tbody tr:last-child td {
+    border-bottom: none;
+}
+
+/* Та же утечка .incidents-table td:nth-child(2) { min-width: 250px } из журнала
+   инцидентов — здесь это колонка логина, ей столько места не нужно */
+#users-table td:nth-child(2) {
+    min-width: 0;
+    max-width: none;
 }
 
 .pattern-delete-btn {

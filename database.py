@@ -146,7 +146,8 @@ def init_db():
         'working_hours_start': '09:00',
         'working_hours_end': '18:00',
         'working_days': '1,2,3,4,5', # 1=Mon, ..., 7=Sun
-        'exclude_vpn_issues': '0', # Исключать ли короткие инциденты (<1м) из общего SLA
+        'exclude_vpn_issues': '0', # Исключать ли короткие инциденты (< порога) из общего SLA
+        'vpn_issue_threshold_sec': '60', # Порог длительности (сек), ниже которого инцидент считается сетевым/VPN-сбоем
         'min_severity': '0',
         'mapping_mode': 'name_auto',
         # Токен доступа к ТВ-панели (/tv?token=...) — генерируется один раз при первом запуске
@@ -247,12 +248,16 @@ def cache_incidents(incidents_list):
     conn.close()
 
 def get_incidents(start_time, end_time, hostids=None):
-    # Получаем минимальную критичность из настроек
+    # Получаем минимальную критичность и порог сетевых/VPN-сбоев из настроек
     settings = get_settings()
     try:
         min_severity = int(settings.get('min_severity', '0'))
     except Exception:
         min_severity = 0
+    try:
+        vpn_threshold = max(0, int(settings.get('vpn_issue_threshold_sec', '60')))
+    except (ValueError, TypeError):
+        vpn_threshold = 60
 
     conn = get_db_connection()
     query = '''
@@ -276,6 +281,9 @@ def get_incidents(start_time, end_time, hostids=None):
     for row in rows:
         d = dict(row)
         d['is_power_issue'] = 0
+        # Пересчитываем "сетевой/VPN сбой" динамически по текущему порогу настроек,
+        # а не по значению, зафиксированному при синхронизации со старым (жестко заданным) порогом
+        d['is_vpn_issue'] = 1 if (d.get('duration') is not None and d['duration'] < vpn_threshold) else 0
         override = d.get('overridden_category')
         if override:
             if override == 'network':

@@ -486,10 +486,18 @@
                                 <label class="checkbox-container">
                                     <input type="checkbox" id="exclude_vpn_issues">
                                     <span class="checkmark"></span>
-                                    Исключать сбои &lt; 1 мин (проблемы сети/VPN) из общего SLA
+                                    Исключать короткие сбои (проблемы сети/VPN) из общего SLA
                                 </label>
+                                <div style="display: flex; align-items: center; gap: 8px; margin-top: 10px; margin-left: 28px;">
+                                    <span style="color: var(--text-secondary); font-size: 13px; white-space: nowrap;">Порог длительности:</span>
+                                    <input type="number" id="vpn_issue_threshold_sec" min="1" step="1" value="60" style="width: 90px; padding: 6px 10px;">
+                                    <span style="color: var(--text-muted); font-size: 12px;">сек.</span>
+                                </div>
+                                <p style="color: var(--text-muted); font-size: 11px; margin: 4px 0 0 28px; line-height: 1.4;">
+                                    Инциденты короче этого времени считаются сетевым/VPN-сбоем. Значение применяется сразу ко всем сохранённым инцидентам, повторная синхронизация не требуется.
+                                </p>
                             </div>
-                            
+
                             <div class="form-group" style="margin-top: 15px;">
                                 <label for="mapping_mode">Режим сопоставления клиентов</label>
                                 <div class="select-wrapper">

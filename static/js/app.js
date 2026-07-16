@@ -49,6 +49,21 @@ function formatDuration(seconds) {
     return `${hrs.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
 }
 
+// Текущий порог "сетевого/VPN сбоя" (сек) — читаем прямо из поля настроек,
+// чтобы подписи в UI не расходились со значением, которое реально применяет бэкенд
+function getVpnThresholdSec() {
+    const input = document.getElementById('vpn_issue_threshold_sec');
+    const val = input ? parseInt(input.value, 10) : NaN;
+    return (Number.isFinite(val) && val > 0) ? val : 60;
+}
+
+function formatVpnThresholdLabel(sec) {
+    if (sec >= 60 && sec % 60 === 0) {
+        return `${sec / 60} мин`;
+    }
+    return `${sec} сек`;
+}
+
 function formatDateTime(unixTimestamp) {
     if (!unixTimestamp) return '-';
     const date = new Date(unixTimestamp * 1000);
@@ -377,7 +392,7 @@ function renderCharts(reportData, vpnCount, serverCount) {
     incidentChartInstance = new Chart(ctxInc, {
         type: 'doughnut',
         data: {
-            labels: ['Сеть / VPN (< 1 мин)', 'Сбои ПО/Серверов'],
+            labels: [`Сеть / VPN (< ${formatVpnThresholdLabel(getVpnThresholdSec())})`, 'Сбои ПО/Серверов'],
             datasets: [{
                 data: [vpnCount, serverCount],
                 backgroundColor: ['rgba(6, 182, 212, 0.7)', 'rgba(239, 68, 68, 0.7)'],
@@ -1105,7 +1120,7 @@ function renderServerIncidents(srv, tbody) {
         // Категория
         let categoryHtml = '';
         if (inc.is_vpn_issue) {
-            categoryHtml = `<span class="status-badge vpn-issue"><i class="fa-solid fa-wifi"></i> Сеть / VPN (&lt;1м)</span>`;
+            categoryHtml = `<span class="status-badge vpn-issue"><i class="fa-solid fa-wifi"></i> Сеть / VPN (&lt;${formatVpnThresholdLabel(getVpnThresholdSec())})</span>`;
         } else if (inc.is_maintenance) {
             categoryHtml = `<span class="status-badge maintenance"><i class="fa-solid fa-screwdriver-wrench"></i> Обслуживание</span>`;
         } else if (inc.is_power_issue) {

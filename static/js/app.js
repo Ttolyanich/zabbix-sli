@@ -508,45 +508,165 @@ function renderAnalyticsReportChart(data) {
     });
 }
 
-function renderAnalyticsReportTable(data) {
-    const tbody = document.getElementById('analytics-report-table-body');
-    if (!tbody) return;
+function renderAnalyticsIncidentsTable(incidents) {
+    if (!incidents || incidents.length === 0) {
+        return '<div class="an-empty-note" style="padding: 8px 0;">Инцидентов не найдено</div>';
+    }
+
+    const rows = incidents.map(inc => `
+        <tr>
+            <td>${inc.name}</td>
+            <td><span class="client-tag">${inc.client}</span></td>
+            <td>${inc.server}</td>
+            <td>${formatDateTime(inc.clock)}</td>
+            <td>${inc.r_clock ? formatDateTime(inc.r_clock) : '<span class="status-badge server-issue">Активен</span>'}</td>
+            <td style="text-align: right;">${formatDuration(inc.downtime_sec)}</td>
+        </tr>
+    `).join('');
+
+    return `
+        <table class="incidents-table">
+            <thead>
+                <tr>
+                    <th>Инцидент</th>
+                    <th>Клиент</th>
+                    <th>Сервер</th>
+                    <th>Начало</th>
+                    <th>Окончание</th>
+                    <th style="text-align: right;">Простой</th>
+                </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+        </table>
+    `;
+}
+
+function renderAnalyticsGroupContent(group, container, openPatterns) {
+    container.dataset.rendered = '1';
+
+    // "Не классифицировано" не имеет паттернов — сразу список инцидентов
+    if (group.id === null) {
+        container.innerHTML = `<div class="an-incidents-wrapper">${renderAnalyticsIncidentsTable(group.incidents)}</div>`;
+        return;
+    }
+
+    const patterns = group.patterns.filter(p => p.count > 0);
+    if (patterns.length === 0) {
+        container.innerHTML = '<div class="an-empty-note">Ни один паттерн этой группы не совпал с инцидентами за период</div>';
+        return;
+    }
+
+    container.innerHTML = patterns.map(p => `
+        <div class="an-pattern-item" data-key="pattern-${p.id}">
+            <div class="an-pattern-trigger">
+                <div class="an-col-expand"><i class="fa-solid fa-chevron-right"></i></div>
+                <code>${p.pattern}</code>
+                <span class="an-pattern-meta">${p.count} инц. &middot; ${formatDuration(p.downtime_sec)}</span>
+            </div>
+            <div class="an-pattern-content"></div>
+        </div>
+    `).join('');
+
+    container.querySelectorAll('.an-pattern-item').forEach(patternItem => {
+        const key = patternItem.getAttribute('data-key');
+        const patternId = key.replace('pattern-', '');
+        const pattern = patterns.find(p => String(p.id) === patternId);
+        const trigger = patternItem.querySelector('.an-pattern-trigger');
+        const pContent = patternItem.querySelector('.an-pattern-content');
+
+        const renderIncidents = () => {
+            pContent.dataset.rendered = '1';
+            pContent.innerHTML = `<div class="an-incidents-wrapper">${renderAnalyticsIncidentsTable(pattern.incidents)}</div>`;
+        };
+
+        trigger.addEventListener('click', () => {
+            const isOpen = patternItem.classList.contains('open');
+            patternItem.classList.toggle('open');
+            if (!isOpen && !pContent.dataset.rendered) {
+                renderIncidents();
+            }
+        });
+
+        if (openPatterns.has(key)) {
+            patternItem.classList.add('open');
+            renderIncidents();
+        }
+    });
+}
+
+function renderAnalyticsReportList(data) {
+    const container = document.getElementById('analytics-report-list');
+    if (!container) return;
+
+    // Запоминаем раскрытые группы/паттерны, чтобы обновление периода не сворачивало аккордеон
+    const openGroups = new Set([...container.querySelectorAll('.an-group-item.open')].map(el => el.getAttribute('data-key')));
+    const openPatterns = new Set([...container.querySelectorAll('.an-pattern-item.open')].map(el => el.getAttribute('data-key')));
 
     const all = [...data.groups, data.uncategorized].filter(g => g.count > 0).sort((a, b) => b.count - a.count);
 
     if (all.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="5" class="text-center" style="color: var(--text-muted);">За выбранный период инцидентов не зафиксировано</td></tr>';
+        container.innerHTML = '<div class="an-empty-note">За выбранный период инцидентов не зафиксировано</div>';
         return;
     }
 
-    tbody.innerHTML = all.map(g => `
-        <tr>
-            <td>
-                <span class="analytics-group-swatch" style="background: ${g.color};"></span>
-                <b>${g.name}</b>
-            </td>
-            <td style="text-align: center;">${g.count}</td>
-            <td style="text-align: center;">${g.percent}%</td>
-            <td style="text-align: center;">${formatDuration(g.downtime_sec)}</td>
-            <td>${g.top_clients.length
-                ? g.top_clients.map(c => `<span class="client-tag">${c.client} (${c.count})</span>`).join(' ')
-                : '<span style="color: var(--text-muted);">—</span>'}</td>
-        </tr>
-    `).join('');
+    container.innerHTML = '';
+    all.forEach(g => {
+        const groupKey = g.id === null ? 'group-uncategorized' : `group-${g.id}`;
+        const item = document.createElement('div');
+        item.className = 'an-group-item';
+        item.setAttribute('data-key', groupKey);
+
+        const clientsHtml = g.top_clients.length
+            ? g.top_clients.map(c => `<span class="client-tag">${c.client} (${c.count})</span>`).join(' ')
+            : '<span style="color: var(--text-muted);">—</span>';
+
+        item.innerHTML = `
+            <div class="an-group-trigger">
+                <div class="an-col-expand"><i class="fa-solid fa-chevron-right"></i></div>
+                <div class="an-col-name">
+                    <span class="analytics-group-swatch" style="background: ${g.color};"></span>
+                    <b>${g.name}</b>
+                </div>
+                <div class="an-col-count">${g.count}</div>
+                <div class="an-col-percent">${g.percent}%</div>
+                <div class="an-col-downtime">${formatDuration(g.downtime_sec)}</div>
+                <div class="an-col-clients">${clientsHtml}</div>
+            </div>
+            <div class="an-group-content"></div>
+        `;
+
+        const trigger = item.querySelector('.an-group-trigger');
+        const content = item.querySelector('.an-group-content');
+
+        trigger.addEventListener('click', () => {
+            const isOpen = item.classList.contains('open');
+            item.classList.toggle('open');
+            if (!isOpen && !content.dataset.rendered) {
+                renderAnalyticsGroupContent(g, content, openPatterns);
+            }
+        });
+
+        if (openGroups.has(groupKey)) {
+            item.classList.add('open');
+            renderAnalyticsGroupContent(g, content, openPatterns);
+        }
+
+        container.appendChild(item);
+    });
 }
 
 async function loadAnalyticsReportTab() {
-    const tbody = document.getElementById('analytics-report-table-body');
+    const container = document.getElementById('analytics-report-list');
     try {
         const data = await fetchAnalyticsReport();
         currentAnalyticsData = data;
         renderAnalyticsMiniChart(data);
         renderAnalyticsReportKPIs(data);
         renderAnalyticsReportChart(data);
-        renderAnalyticsReportTable(data);
+        renderAnalyticsReportList(data);
     } catch (e) {
         showToast('Ошибка при загрузке отчета аналитики', 'error');
-        if (tbody) tbody.innerHTML = '<tr><td colspan="5" class="text-center text-danger">Не удалось загрузить отчет аналитики</td></tr>';
+        if (container) container.innerHTML = '<div class="an-empty-note" style="color: var(--danger);">Не удалось загрузить отчет аналитики</div>';
     }
 }
 

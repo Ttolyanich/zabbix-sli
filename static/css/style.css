@@ -1620,6 +1620,116 @@ body {
     text-decoration: underline !important;
 }
 
+/* BI-АНАЛИТИКА: аккордеон "группа -> паттерн -> инциденты" (вкладка "Аналитика") */
+.an-report-header-row {
+    display: flex;
+    align-items: center;
+    padding: 12px 20px;
+    border-bottom: 1px solid var(--border-color);
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.an-col-expand { width: 32px; flex-shrink: 0; }
+.an-col-name { flex: 2; display: flex; align-items: center; gap: 8px; min-width: 0; }
+.an-col-count { flex: 0.6; text-align: center; }
+.an-col-percent { flex: 0.6; text-align: center; }
+.an-col-downtime { flex: 1; text-align: center; }
+.an-col-clients { flex: 2.5; }
+
+.an-report-list .an-col-name b,
+.an-report-list .an-col-name code { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.an-group-item, .an-pattern-item {
+    border-bottom: 1px solid var(--border-color);
+}
+
+.an-group-trigger, .an-pattern-trigger {
+    display: flex;
+    align-items: center;
+    padding: 14px 20px;
+    cursor: pointer;
+    transition: background-color var(--transition-speed);
+    font-weight: 600;
+}
+
+.an-group-trigger:hover, .an-pattern-trigger:hover {
+    background-color: var(--bg-hover);
+}
+
+.an-group-trigger .an-col-expand i, .an-pattern-trigger .an-col-expand i {
+    transition: transform var(--transition-speed);
+    color: var(--text-muted);
+}
+
+.an-group-item.open > .an-group-trigger .an-col-expand i,
+.an-pattern-item.open > .an-pattern-trigger .an-col-expand i {
+    transform: rotate(90deg);
+}
+
+.an-group-content {
+    max-height: 0;
+    overflow: hidden;
+    transition: max-height 0.4s ease-out;
+    background-color: var(--bg-accordion);
+}
+
+.an-group-item.open > .an-group-content {
+    max-height: none;
+    overflow: visible;
+}
+
+.an-pattern-trigger {
+    padding: 12px 20px 12px 44px;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    border-bottom: 1px solid var(--border-inner);
+}
+
+.an-pattern-trigger:last-child { border-bottom: none; }
+
+.an-pattern-trigger code {
+    font-family: monospace;
+    color: var(--text-primary);
+    background: var(--bg-input);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 12px;
+}
+
+.an-pattern-meta {
+    margin-left: auto;
+    font-size: 12px;
+    color: var(--text-muted);
+    white-space: nowrap;
+}
+
+.an-pattern-content {
+    max-height: 0;
+    overflow: hidden;
+    transition: max-height 0.4s ease-out;
+    background-color: var(--bg-incidents);
+}
+
+.an-pattern-item.open > .an-pattern-content {
+    max-height: none;
+    overflow: visible;
+}
+
+.an-incidents-wrapper {
+    padding: 12px 20px 12px 64px;
+}
+
+.an-empty-note {
+    padding: 16px 20px;
+    color: var(--text-muted);
+    font-size: 13px;
+}
+
 /* СТИЛИ ПЕЧАТИ И PDF-ЭКСПОРТА */
 #print-report-container {
     display: none;

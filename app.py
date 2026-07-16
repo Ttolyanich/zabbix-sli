@@ -606,45 +606,102 @@ def get_analytics_report():
     groups = database.get_analytics_groups()
     report = analytics.calculate_sli_report(start_ts, end_ts)
 
-    # stats[group_id] = {group, count, downtime_sec, clients: {client_name: count}}
-    stats = {g['id']: {'group': g, 'count': 0, 'downtime_sec': 0, 'clients': {}} for g in groups}
-    uncategorized = {'count': 0, 'downtime_sec': 0, 'clients': {}}
+    # stats[group_id] = {count, downtime_sec, clients: {client_name: count}, patterns: {pattern_id: {...}}}
+    stats = {
+        g['id']: {
+            'count': 0,
+            'downtime_sec': 0,
+            'clients': {},
+            'patterns': {p['id']: {'pattern': p, 'count': 0, 'downtime_sec': 0, 'incidents': []} for p in g['patterns']}
+        }
+        for g in groups
+    }
+    uncategorized = {'count': 0, 'downtime_sec': 0, 'clients': {}, 'incidents': []}
     total_incidents = 0
 
     for client_name, client_data in report.items():
         for srv in client_data['servers']:
             for inc in srv['incidents']:
                 total_incidents += 1
-                match = database.classify_analytics_group(inc['name'], groups)
-                bucket = stats[match['id']] if match else uncategorized
-                bucket['count'] += 1
-                bucket['downtime_sec'] += inc.get('downtime_in_period_sec', 0) or 0
-                bucket['clients'][client_name] = bucket['clients'].get(client_name, 0) + 1
+                downtime = inc.get('downtime_in_period_sec', 0) or 0
+                match_group, match_pattern = database.classify_analytics_group(inc['name'], groups)
 
-    def _finalize(bucket, name=None, color=None, group_id=None):
-        top_clients = sorted(bucket['clients'].items(), key=lambda x: -x[1])[:5]
-        percent = round(bucket['count'] / total_incidents * 100, 1) if total_incidents else 0
-        return {
-            'id': group_id,
-            'name': name,
-            'color': color,
+                inc_summary = {
+                    'eventid': inc['eventid'],
+                    'client': client_name,
+                    'server': srv['name'],
+                    'name': inc['name'],
+                    'clock': inc['clock'],
+                    'r_clock': inc.get('r_clock'),
+                    'downtime_sec': downtime
+                }
+
+                if match_group:
+                    bucket = stats[match_group['id']]
+                    bucket['count'] += 1
+                    bucket['downtime_sec'] += downtime
+                    bucket['clients'][client_name] = bucket['clients'].get(client_name, 0) + 1
+
+                    p_bucket = bucket['patterns'][match_pattern['id']]
+                    p_bucket['count'] += 1
+                    p_bucket['downtime_sec'] += downtime
+                    p_bucket['incidents'].append(inc_summary)
+                else:
+                    uncategorized['count'] += 1
+                    uncategorized['downtime_sec'] += downtime
+                    uncategorized['clients'][client_name] = uncategorized['clients'].get(client_name, 0) + 1
+                    uncategorized['incidents'].append(inc_summary)
+
+    def _top_clients(clients_dict):
+        return [{'client': c, 'count': n} for c, n in sorted(clients_dict.items(), key=lambda x: -x[1])[:5]]
+
+    def _percent(count):
+        return round(count / total_incidents * 100, 1) if total_incidents else 0
+
+    groups_result = []
+    for g in groups:
+        bucket = stats[g['id']]
+        patterns_result = []
+        for p in g['patterns']:
+            pb = bucket['patterns'][p['id']]
+            pb['incidents'].sort(key=lambda i: -i['clock'])
+            patterns_result.append({
+                'id': p['id'],
+                'pattern': p['pattern'],
+                'count': pb['count'],
+                'downtime_sec': pb['downtime_sec'],
+                'incidents': pb['incidents']
+            })
+        patterns_result.sort(key=lambda p: -p['count'])
+
+        groups_result.append({
+            'id': g['id'],
+            'name': g['name'],
+            'color': g['color'],
             'count': bucket['count'],
-            'percent': percent,
+            'percent': _percent(bucket['count']),
             'downtime_sec': bucket['downtime_sec'],
-            'top_clients': [{'client': c, 'count': n} for c, n in top_clients]
-        }
-
-    groups_result = [
-        _finalize(stats[g['id']], name=g['name'], color=g['color'], group_id=g['id'])
-        for g in groups
-    ]
+            'top_clients': _top_clients(bucket['clients']),
+            'patterns': patterns_result
+        })
     groups_result.sort(key=lambda g: -g['count'])
+
+    uncategorized['incidents'].sort(key=lambda i: -i['clock'])
 
     return jsonify({
         'period': {'start': start_ts, 'end': end_ts},
         'total_incidents': total_incidents,
         'groups': groups_result,
-        'uncategorized': _finalize(uncategorized, name='Не классифицировано', color='#6b7280')
+        'uncategorized': {
+            'id': None,
+            'name': 'Не классифицировано',
+            'color': '#6b7280',
+            'count': uncategorized['count'],
+            'percent': _percent(uncategorized['count']),
+            'downtime_sec': uncategorized['downtime_sec'],
+            'top_clients': _top_clients(uncategorized['clients']),
+            'incidents': uncategorized['incidents']
+        }
     })
 
 @app.route('/api/profile/change-password', methods=['POST'])

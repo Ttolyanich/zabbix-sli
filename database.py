@@ -507,10 +507,13 @@ def delete_analytics_pattern(pattern_id):
     conn.close()
 
 def classify_analytics_group(incident_name, groups):
-    """Находит первую группу, чей паттерн содержится в имени инцидента (без учета регистра)."""
+    """
+    Находит первую группу и конкретный паттерн, совпадающий с именем инцидента
+    (подстрока, без учета регистра). Возвращает (group, pattern) или (None, None).
+    """
     name_lower = incident_name.lower()
     for g in groups:
         for p in g['patterns']:
             if p['pattern'].lower() in name_lower:
-                return g
-    return None
+                return g, p
+    return None, None

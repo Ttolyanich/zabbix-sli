@@ -73,13 +73,20 @@ def calculate_sli_report(start_time, end_time):
         
     exclude_vpn = settings.get('exclude_vpn_issues') == '1'
     
-    # Загружаем неактивные паттерны для исключения из SLA
+    # Загружаем подстроки для исключения из SLA: (1) отключённые галочками авто-имена
+    # incident_patterns и (2) глобальные правила sla_exclusion_rules. Обе половины
+    # матчатся одинаково — по подстроке в имени инцидента.
     ignored_patterns = []
     try:
         patterns = database.get_incident_patterns()
         ignored_patterns = [p['pattern'].lower() for p in patterns if p['is_incident'] == 0]
     except Exception as e:
         print(f"[Analytics] Error loading incident patterns: {str(e)}")
+    try:
+        rules = database.get_sla_exclusion_rules()
+        ignored_patterns.extend(r['pattern'].lower() for r in rules if r['pattern'].strip())
+    except Exception as e:
+        print(f"[Analytics] Error loading SLA exclusion rules: {str(e)}")
         
     # Группируем хосты по клиентам
     clients = {}
@@ -147,19 +154,21 @@ def calculate_sli_report(start_time, end_time):
         if not c_name:
             continue
             
-        # Проверяем, совпадает ли имя инцидента с одним из отключенных паттернов
+        # Проверяем, совпадает ли имя инцидента с одной из исключающих подстрок.
+        # Раньше здесь был continue (инцидент исчезал совсем), теперь — оставляем
+        # его видимым с простоем 0 и пометкой, единообразно с maintenance/power/vpn.
         inc_name_lower = inc['name'].lower()
-        is_ignored_by_pattern = False
+        matched_exclusion = None
         for pat in ignored_patterns:
             if pat in inc_name_lower:
-                is_ignored_by_pattern = True
+                matched_exclusion = pat
                 break
-                
-        if is_ignored_by_pattern:
-            continue
-            
+
         # Проверяем фильтры исключений
-        if exclude_vpn and inc['is_vpn_issue'] == 1:
+        if matched_exclusion is not None:
+            # Исключено правилом/паттерном — не считаем простоем, но показываем
+            inc_downtime = 0
+        elif exclude_vpn and inc['is_vpn_issue'] == 1:
             # Помечаем в списке, но не считаем простоем
             inc_downtime = 0
         elif inc['is_maintenance'] == 1:
@@ -201,6 +210,8 @@ def calculate_sli_report(start_time, end_time):
         inc_report['downtime_in_period_sec'] = inc_downtime
         inc_report['mttd_sec'] = mttd
         inc_report['mttr_sec'] = mttr
+        inc_report['is_ignored_by_pattern'] = matched_exclusion is not None
+        inc_report['sla_exclusion_pattern'] = matched_exclusion
         srv_data['incidents'].append(inc_report)
         
     # Рассчитываем итоговые проценты по серверам и клиентам

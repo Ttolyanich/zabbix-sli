@@ -128,6 +128,16 @@ def init_db():
         )
     ''')
 
+    # Глобальные правила исключения из SLA по подстроке (в отличие от incident_patterns
+    # с галочками на каждое полное имя — одно правило рубит совпадения на всех хостах).
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS sla_exclusion_rules (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            pattern TEXT UNIQUE NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+
     # Дефолтные настройки
     default_settings = {
         'zabbix_url': '',
@@ -365,6 +375,33 @@ def save_incident_pattern(pattern, is_incident):
 def delete_incident_pattern(pattern):
     conn = get_db_connection()
     conn.execute('DELETE FROM incident_patterns WHERE pattern = ?', (pattern,))
+    conn.commit()
+    conn.close()
+
+# --- Глобальные правила исключения из SLA по подстроке ---
+
+def get_sla_exclusion_rules():
+    """Список правил-подстрок, исключающих совпадающие инциденты из SLA на всех хостах."""
+    conn = get_db_connection()
+    rows = conn.execute('SELECT id, pattern FROM sla_exclusion_rules ORDER BY pattern ASC').fetchall()
+    conn.close()
+    return [{'id': row['id'], 'pattern': row['pattern']} for row in rows]
+
+def add_sla_exclusion_rule(pattern):
+    """Добавляет правило. Возвращает id нового правила или None, если такое уже есть."""
+    conn = get_db_connection()
+    try:
+        cursor = conn.execute('INSERT INTO sla_exclusion_rules (pattern) VALUES (?)', (pattern.strip(),))
+        conn.commit()
+        return cursor.lastrowid
+    except sqlite3.IntegrityError:
+        return None
+    finally:
+        conn.close()
+
+def delete_sla_exclusion_rule(rule_id):
+    conn = get_db_connection()
+    conn.execute('DELETE FROM sla_exclusion_rules WHERE id = ?', (rule_id,))
     conn.commit()
     conn.close()
 

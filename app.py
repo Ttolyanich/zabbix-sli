@@ -310,12 +310,13 @@ def tv_data():
     for c_name, c_data in report.items():
         client_active_hosts = 0
         for srv in c_data['servers']:
-            # Активная проблема = нерешённый инцидент, кроме обслуживания, электропитания
-            # и (при включённом исключении) инцидентов категории "Сеть/VPN"
+            # Активная проблема = нерешённый инцидент, кроме обслуживания, электропитания,
+            # исключённых правилом и (при включённом исключении) инцидентов категории "Сеть/VPN"
             active_incidents = [
                 inc for inc in srv['incidents']
                 if not inc['r_clock'] and not inc['is_maintenance']
                 and not inc.get('is_power_issue')
+                and not inc.get('is_ignored_by_pattern')
                 and not (exclude_vpn and inc['is_vpn_issue'])
             ]
             active_incidents_total += len(active_incidents)
@@ -550,6 +551,71 @@ def api_delete_incident_pattern():
         return jsonify({"status": "success", "message": "Правило фильтрации успешно удалено"})
     except Exception as e:
         return jsonify({"status": "error", "message": f"Ошибка удаления правила: {str(e)}"}), 500
+
+# === Глобальные правила исключения из SLA по подстроке ===
+
+@app.route('/api/sla-exclusion-rules', methods=['GET'])
+@login_required
+def api_get_sla_exclusion_rules():
+    try:
+        return jsonify(database.get_sla_exclusion_rules())
+    except Exception as e:
+        return jsonify({"status": "error", "message": f"Ошибка получения правил: {str(e)}"}), 500
+
+@app.route('/api/sla-exclusion-rules', methods=['POST'])
+@admin_required
+def api_add_sla_exclusion_rule():
+    data = request.json or {}
+    pattern = (data.get('pattern') or '').strip()
+
+    if not pattern:
+        return jsonify({"status": "error", "message": "Правило не может быть пустым"}), 400
+
+    rule_id = database.add_sla_exclusion_rule(pattern)
+    if rule_id is None:
+        return jsonify({"status": "error", "message": "Такое правило уже существует"}), 400
+
+    return jsonify({"status": "success", "message": "Правило исключения добавлено", "id": rule_id})
+
+@app.route('/api/sla-exclusion-rules/<int:rule_id>', methods=['DELETE'])
+@admin_required
+def api_delete_sla_exclusion_rule(rule_id):
+    database.delete_sla_exclusion_rule(rule_id)
+    return jsonify({"status": "success", "message": "Правило исключения удалено"})
+
+@app.route('/api/sla-exclusion-rules/preview', methods=['GET'])
+@login_required
+def api_preview_sla_exclusion_rule():
+    """Показывает охват правила ДО сохранения: сколько инцидентов и уникальных имён
+    за период попадёт под подстроку. Считает по кэшу инцидентов, как и отчёт."""
+    pattern = (request.args.get('pattern') or '').strip().lower()
+    if not pattern:
+        return jsonify({"count": 0, "unique_names": 0, "names": []})
+
+    try:
+        now = datetime.datetime.now()
+        first_day_of_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        start_ts = int(request.args.get('start_time') or first_day_of_month.timestamp())
+        end_ts = int(request.args.get('end_time') or time.time())
+
+        mappings = database.get_mappings()
+        host_ids = [m['zabbix_hostid'] for m in mappings]
+        incidents = database.get_incidents(start_ts, end_ts, host_ids) if host_ids else []
+
+        matched_names = {}
+        for inc in incidents:
+            if pattern in inc['name'].lower():
+                matched_names[inc['name']] = matched_names.get(inc['name'], 0) + 1
+
+        total = sum(matched_names.values())
+        names = sorted(matched_names.keys())
+        return jsonify({
+            "count": total,
+            "unique_names": len(names),
+            "names": names[:50]
+        })
+    except Exception as e:
+        return jsonify({"status": "error", "message": f"Ошибка предпросмотра: {str(e)}"}), 500
 
 # === BI-аналитика: группы инцидентов и отчет ===
 

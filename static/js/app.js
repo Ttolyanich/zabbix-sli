@@ -12,6 +12,8 @@ let selectedIncidentEventIds = new Set();
 let analyticsChartInstance = null;
 let analyticsReportChartInstance = null;
 let currentAnalyticsData = null;
+let slaExclusionRules = []; // [{id, pattern}] — глобальные правила исключения из SLA по подстроке
+let _rulePreviewTimer = null;
 
 // Инициализация при загрузке страницы
 document.addEventListener('DOMContentLoaded', () => {
@@ -1175,7 +1177,7 @@ function renderServerIncidents(srv, tbody) {
             </td>
             <td>
                 <b>${inc.name}</b>
-                ${inc.is_ignored_by_pattern ? `<span class="ignored-label-badge" title="Исключен из SLA по правилу фильтрации"><i class="fa-solid fa-filter"></i> Исключен</span>` : ''}
+                ${inc.is_ignored_by_pattern ? `<span class="ignored-label-badge" title="Исключён из SLA${inc.sla_exclusion_pattern ? ` по правилу «${inc.sla_exclusion_pattern}»` : ' по правилу фильтрации'}"><i class="fa-solid fa-filter"></i> Исключён</span>` : ''}
             </td>
             <td>
                 <span class="severity-indicator">
@@ -1474,8 +1476,8 @@ async function loadSettings() {
         // Управляем видимостью списка исключаемых групп
         toggleIgnoredGroupsField();
         
-        // Загружаем правила фильтрации
-        loadIncidentPatterns();
+        // Загружаем правила исключения и авто-список имён
+        loadSlaFiltering();
     } catch (e) {
         showToast('Ошибка при загрузке настроек', 'error');
     }
@@ -2329,7 +2331,8 @@ function updatePrintReport(reportData, summary) {
         reportData[clientName].servers.forEach(srv => {
             srv.incidents.forEach(inc => {
                 let excludedLabel = '';
-                if (inc.is_maintenance) excludedLabel = 'обслуживание';
+                if (inc.is_ignored_by_pattern) excludedLabel = 'исключено правилом';
+                else if (inc.is_maintenance) excludedLabel = 'обслуживание';
                 else if (inc.is_power_issue) excludedLabel = 'электропитание';
                 else if (inc.is_vpn_issue) excludedLabel = 'сеть/VPN';
                 allIncidents.push({
@@ -2460,20 +2463,58 @@ function initBulkActionsAndPatterns() {
         });
     }
 
-    // 5. Поиск по правилам фильтрации паттернов
+    // 5. Поиск по именам триггеров (учитывает сворачивание покрытых правилом)
     const searchInput = document.getElementById('patterns-search');
     if (searchInput) {
-        searchInput.addEventListener('input', (e) => {
-            const query = e.target.value.toLowerCase();
-            const rows = document.querySelectorAll('#patterns-table-body tr');
-            rows.forEach(row => {
-                const text = row.innerText.toLowerCase();
-                if (text.includes(query)) {
-                    row.style.display = '';
+        searchInput.addEventListener('input', () => applyPatternsVisibility());
+    }
+
+    // 5a. Правила исключения из SLA по подстроке: добавление + живой предпросмотр
+    const newRuleInput = document.getElementById('new-rule-input');
+    const rulePreview = document.getElementById('rule-preview');
+    if (newRuleInput && rulePreview) {
+        newRuleInput.addEventListener('input', () => {
+            const val = newRuleInput.value.trim();
+            clearTimeout(_rulePreviewTimer);
+            if (val.length < 2) {
+                rulePreview.style.display = 'none';
+                return;
+            }
+            _rulePreviewTimer = setTimeout(() => previewExclusionRule(val), 350);
+        });
+    }
+
+    const addRuleBtn = document.getElementById('add-rule-btn');
+    if (addRuleBtn) {
+        addRuleBtn.addEventListener('click', async () => {
+            const input = document.getElementById('new-rule-input');
+            const pattern = input.value.trim();
+            if (!pattern) {
+                showToast('Введите подстроку правила', 'error');
+                return;
+            }
+            if (pattern.length < 2 && !confirm('Очень короткое правило может исключить слишком много инцидентов. Всё равно добавить?')) {
+                return;
+            }
+            try {
+                const res = await fetch('/api/sla-exclusion-rules', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ pattern })
+                });
+                const result = await res.json();
+                if (res.ok) {
+                    showToast('Правило исключения добавлено');
+                    input.value = '';
+                    if (rulePreview) rulePreview.style.display = 'none';
+                    await loadSlaFiltering();
+                    loadDashboardData(); // Сразу пересчитываем SLA на дашборде
                 } else {
-                    row.style.display = 'none';
+                    showToast(result.message || 'Ошибка добавления правила', 'error');
                 }
-            });
+            } catch (err) {
+                showToast('Ошибка соединения', 'error');
+            }
         });
     }
 
@@ -2526,7 +2567,142 @@ function updateBulkActionsPanel() {
     }
 }
 
-// Загрузка и вывод правил фильтрации паттернов
+// Состояние сворачивания строк авто-списка, покрытых правилом
+let _showCoveredPatterns = false;
+
+// Комбинированная загрузка блока «Фильтрация триггеров»:
+// сначала правила исключения (нужны, чтобы знать покрытие), затем авто-список имён.
+async function loadSlaFiltering() {
+    await loadSlaExclusionRules();
+    await loadIncidentPatterns();
+}
+
+// Возвращает подстроку правила, покрывающего это имя, либо null
+function patternCoveringRule(name) {
+    const lower = (name || '').toLowerCase();
+    for (const r of slaExclusionRules) {
+        const rp = (r.pattern || '').toLowerCase().trim();
+        if (rp && lower.includes(rp)) return r.pattern;
+    }
+    return null;
+}
+
+// Загрузка и вывод глобальных правил исключения из SLA
+async function loadSlaExclusionRules() {
+    try {
+        const res = await fetch('/api/sla-exclusion-rules');
+        const data = await res.json();
+        slaExclusionRules = Array.isArray(data) ? data : [];
+    } catch (e) {
+        slaExclusionRules = [];
+    }
+    renderSlaRules();
+}
+
+function renderSlaRules() {
+    const list = document.getElementById('sla-rules-list');
+    const adminControls = document.getElementById('sla-rules-admin-controls');
+    if (!list) return;
+
+    const isAdmin = window.currentUser && window.currentUser.role === 'admin';
+    if (adminControls) adminControls.style.display = isAdmin ? '' : 'none';
+
+    if (!slaExclusionRules.length) {
+        list.innerHTML = `<p style="color: var(--text-muted); font-size: 13px; margin: 0;">Правил пока нет.${isAdmin ? ' Добавьте подстроку выше — например «backup fail».' : ''}</p>`;
+        return;
+    }
+
+    list.innerHTML = slaExclusionRules.map(r => `
+        <span class="sla-rule-chip" style="display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; margin: 0 8px 8px 0; border-radius: 20px; background: rgba(245, 158, 11, 0.12); border: 1px solid rgba(245, 158, 11, 0.35); font-size: 13px;">
+            <i class="fa-solid fa-ban" style="color: #f59e0b; font-size: 12px;"></i>
+            <code style="font-family: monospace; font-weight: 600; color: var(--text-primary);">${r.pattern}</code>
+            ${isAdmin ? `<button type="button" class="sla-rule-delete" data-id="${r.id}" title="Удалить правило" style="background: none; border: none; cursor: pointer; color: var(--text-muted); font-size: 16px; line-height: 1; padding: 0;">&times;</button>` : ''}
+        </span>
+    `).join('');
+
+    if (isAdmin) {
+        list.querySelectorAll('.sla-rule-delete').forEach(btn => {
+            btn.addEventListener('click', async () => {
+                const id = btn.dataset.id;
+                const rule = slaExclusionRules.find(r => String(r.id) === String(id));
+                if (!confirm(`Удалить правило «${rule ? rule.pattern : ''}»? Исключённые им инциденты снова начнут влиять на SLA.`)) return;
+                try {
+                    const res = await fetch(`/api/sla-exclusion-rules/${id}`, { method: 'DELETE' });
+                    if (res.ok) {
+                        showToast('Правило удалено');
+                        await loadSlaFiltering();
+                        loadDashboardData();
+                    } else {
+                        const j = await res.json().catch(() => ({}));
+                        showToast(j.message || 'Не удалось удалить правило', 'error');
+                    }
+                } catch (e) {
+                    showToast('Ошибка соединения', 'error');
+                }
+            });
+        });
+    }
+}
+
+// Живой предпросмотр охвата правила до сохранения
+async function previewExclusionRule(pattern) {
+    const box = document.getElementById('rule-preview');
+    if (!box) return;
+    try {
+        const res = await fetch(`/api/sla-exclusion-rules/preview?pattern=${encodeURIComponent(pattern)}`);
+        const data = await res.json();
+        box.style.display = '';
+        if (!data.count) {
+            box.innerHTML = `<i class="fa-solid fa-circle-info" style="color: var(--text-muted);"></i> За текущий месяц под «<code>${pattern}</code>» не попадает ни один инцидент.`;
+            return;
+        }
+        const sample = (data.names || []).slice(0, 8).map(n => `<li><code>${n}</code></li>`).join('');
+        const more = data.unique_names > 8 ? `<li style="color: var(--text-muted);">…и ещё ${data.unique_names - 8} имён</li>` : '';
+        box.innerHTML = `<strong><i class="fa-solid fa-triangle-exclamation" style="color: #f59e0b;"></i> Охват за текущий месяц:</strong> ${data.count} инцидент(ов), ${data.unique_names} уникальных имён.<ul style="margin: 6px 0 0 18px; padding: 0;">${sample}${more}</ul>`;
+    } catch (e) {
+        box.style.display = 'none';
+    }
+}
+
+// Применяет к строкам авто-списка совместно фильтр поиска и сворачивание покрытых правилом
+function applyPatternsVisibility() {
+    const tbody = document.getElementById('patterns-table-body');
+    if (!tbody) return;
+    const searchInput = document.getElementById('patterns-search');
+    const query = ((searchInput && searchInput.value) || '').toLowerCase();
+    tbody.querySelectorAll('tr').forEach(row => {
+        const covered = row.dataset.covered === '1';
+        const text = (row.dataset.search || row.innerText).toLowerCase();
+        const matchesSearch = !query || text.includes(query);
+        // покрытые правилом строки скрыты, пока их не раскрыли или пока не ищут явно
+        const visible = matchesSearch && (!covered || _showCoveredPatterns || query.length > 0);
+        row.style.display = visible ? '' : 'none';
+    });
+}
+
+function updateCoveredToggle(coveredCount) {
+    const wrap = document.getElementById('patterns-covered-toggle');
+    const btn = document.getElementById('patterns-covered-btn');
+    if (!wrap || !btn) return;
+    if (coveredCount === 0) {
+        wrap.style.display = 'none';
+        return;
+    }
+    wrap.style.display = '';
+    const render = () => {
+        btn.innerHTML = _showCoveredPatterns
+            ? `<i class="fa-solid fa-eye-slash"></i> Скрыть покрытые правилом (${coveredCount})`
+            : `<i class="fa-solid fa-eye"></i> Показать скрытые правилом (${coveredCount})`;
+    };
+    render();
+    btn.onclick = () => {
+        _showCoveredPatterns = !_showCoveredPatterns;
+        render();
+        applyPatternsVisibility();
+    };
+}
+
+// Загрузка и вывод авто-списка обнаруженных имён триггеров (per-name галочки)
 async function loadIncidentPatterns() {
     const tbody = document.getElementById('patterns-table-body');
     if (!tbody) return;
@@ -2537,57 +2713,71 @@ async function loadIncidentPatterns() {
 
         tbody.innerHTML = '';
         if (patterns.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="3" class="text-center" style="color: var(--text-muted);">Правил фильтрации нет. Список заполнится автоматически при появлении инцидентов.</td></tr>';
+            updateCoveredToggle(0);
+            tbody.innerHTML = '<tr><td colspan="3" class="text-center" style="color: var(--text-muted);">Имён пока нет. Список заполнится автоматически при появлении инцидентов.</td></tr>';
             return;
         }
 
+        let coveredCount = 0;
+
         patterns.forEach(p => {
+            const coveringRule = patternCoveringRule(p.pattern);
+            const isCovered = coveringRule !== null;
+            if (isCovered) coveredCount++;
+
             const tr = document.createElement('tr');
-            
+            tr.dataset.covered = isCovered ? '1' : '0';
+            tr.dataset.search = p.pattern.toLowerCase();
+
             const isChecked = p.is_incident === 1 ? 'checked' : '';
+            const badge = isCovered
+                ? `<span style="display: inline-block; margin-left: 8px; padding: 2px 8px; border-radius: 10px; font-size: 11px; background: rgba(245, 158, 11, 0.15); color: #f59e0b; white-space: nowrap;"><i class="fa-solid fa-ban"></i> исключено правилом «${coveringRule}»</span>`
+                : '';
 
             tr.innerHTML = `
                 <td style="text-align: center;">
                     <label class="checkbox-container" style="margin: 0; display: inline-block;">
-                        <input type="checkbox" class="pattern-status-checkbox" data-pattern="${p.pattern}" ${isChecked}>
+                        <input type="checkbox" class="pattern-status-checkbox" data-pattern="${p.pattern}" ${isChecked} ${isCovered ? 'disabled' : ''}>
                         <span class="checkmark"></span>
                     </label>
                 </td>
-                <td><code style="font-family: monospace; font-size: 13px; font-weight: 600; color: var(--text-primary);">${p.pattern}</code></td>
+                <td><code style="font-family: monospace; font-size: 13px; font-weight: 600; color: var(--text-primary); ${isCovered ? 'opacity: 0.6;' : ''}">${p.pattern}</code>${badge}</td>
                 <td style="text-align: center;">
-                    <button type="button" class="pattern-delete-btn" data-pattern="${p.pattern}" title="Удалить правило">
+                    <button type="button" class="pattern-delete-btn" data-pattern="${p.pattern}" title="Удалить имя из списка">
                         <i class="fa-solid fa-trash-can"></i>
                     </button>
                 </td>
             `;
 
-            // Обработчик переключения галочки "учитывать в SLA"
+            // Обработчик переключения галочки "учитывать в SLA" (только для непокрытых)
             const checkbox = tr.querySelector('.pattern-status-checkbox');
-            checkbox.addEventListener('change', async (e) => {
-                const is_incident = e.target.checked ? 1 : 0;
-                try {
-                    const res = await fetch('/api/incidents/patterns', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ pattern: p.pattern, is_incident })
-                    });
-                    if (res.ok) {
-                        showToast('Правило фильтрации обновлено');
-                        loadDashboardData(); // Обновляем Uptime на дашборде
-                    } else {
-                        showToast('Не удалось обновить правило', 'error');
-                        e.target.checked = !e.target.checked; // откат
+            if (!isCovered) {
+                checkbox.addEventListener('change', async (e) => {
+                    const is_incident = e.target.checked ? 1 : 0;
+                    try {
+                        const res = await fetch('/api/incidents/patterns', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ pattern: p.pattern, is_incident })
+                        });
+                        if (res.ok) {
+                            showToast('Правило фильтрации обновлено');
+                            loadDashboardData(); // Обновляем Uptime на дашборде
+                        } else {
+                            showToast('Не удалось обновить правило', 'error');
+                            e.target.checked = !e.target.checked; // откат
+                        }
+                    } catch (err) {
+                        showToast('Ошибка сети', 'error');
+                        e.target.checked = !e.target.checked;
                     }
-                } catch (err) {
-                    showToast('Ошибка сети', 'error');
-                    e.target.checked = !e.target.checked;
-                }
-            });
+                });
+            }
 
-            // Обработчик удаления правила
+            // Обработчик удаления имени из списка
             const deleteBtn = tr.querySelector('.pattern-delete-btn');
             deleteBtn.addEventListener('click', async () => {
-                if (confirm(`Вы уверены, что хотите удалить правило "${p.pattern}"?`)) {
+                if (confirm(`Удалить имя «${p.pattern}» из списка? Оно появится снова при следующем таком инциденте.`)) {
                     try {
                         const res = await fetch('/api/incidents/patterns/delete', {
                             method: 'POST',
@@ -2595,11 +2785,11 @@ async function loadIncidentPatterns() {
                             body: JSON.stringify({ pattern: p.pattern })
                         });
                         if (res.ok) {
-                            showToast('Правило удалено');
+                            showToast('Имя удалено из списка');
                             loadIncidentPatterns();
                             loadDashboardData(); // Обновляем Uptime на дашборде
                         } else {
-                            showToast('Не удалось удалить правило', 'error');
+                            showToast('Не удалось удалить', 'error');
                         }
                     } catch (err) {
                         showToast('Ошибка соединения', 'error');
@@ -2610,17 +2800,11 @@ async function loadIncidentPatterns() {
             tbody.appendChild(tr);
         });
 
-        // Применяем фильтр поиска (если в строке поиска что-то введено)
-        const searchInput = document.getElementById('patterns-search');
-        if (searchInput && searchInput.value) {
-            const query = searchInput.value.toLowerCase();
-            tbody.querySelectorAll('tr').forEach(row => {
-                const text = row.innerText.toLowerCase();
-                row.style.display = text.includes(query) ? '' : 'none';
-            });
-        }
+        updateCoveredToggle(coveredCount);
+        applyPatternsVisibility();
 
     } catch (e) {
-        tbody.innerHTML = '<tr><td colspan="3" class="text-center text-danger">Не удалось загрузить список правил фильтрации</td></tr>';
+        updateCoveredToggle(0);
+        tbody.innerHTML = '<tr><td colspan="3" class="text-center text-danger">Не удалось загрузить список имён триггеров</td></tr>';
     }
 }

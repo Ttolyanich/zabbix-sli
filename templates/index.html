@@ -550,28 +550,59 @@
                         <div class="card" style="grid-column: 1 / -1;">
                             <div class="card-header-icon logic-color" style="background: linear-gradient(135deg, #f59e0b, #d97706);"><i class="fa-solid fa-filter"></i></div>
                             <h3>Фильтрация триггеров (Исключение из SLA)</h3>
-                            <p style="color: var(--text-muted); font-size: 13px; margin-bottom: 15px;">
-                                Вы можете отключить определенные типы триггеров (например, высокая загрузка диска/CPU), чтобы они не считались простоем и не уменьшали общий SLA доступности.
+                            <p style="color: var(--text-muted); font-size: 13px; margin-bottom: 20px;">
+                                Исключённые триггеры не считаются простоем и не уменьшают SLA. Инцидент при этом остаётся виден в журналах и отчётах с пометкой «исключён правилом».
                             </p>
-                            
-                            <div class="form-group" style="display: flex; gap: 10px;">
-                                <input type="text" id="new-pattern-input" placeholder="Введите паттерн/подстроку триггера (например: Disk read request)">
-                                <button type="button" class="save-settings-btn" id="add-pattern-btn" style="white-space: nowrap; margin-top: 0; width: auto; padding: 10px 20px;">
-                                    <i class="fa-solid fa-plus"></i> Добавить правило
-                                </button>
+
+                            <!-- Правила исключения по подстроке (глобальные) -->
+                            <div style="margin-bottom: 25px;">
+                                <h4 style="margin: 0 0 6px; font-size: 15px; color: var(--text-primary);">
+                                    <i class="fa-solid fa-list-check" style="color: #f59e0b;"></i> Правила исключения по подстроке
+                                </h4>
+                                <p style="color: var(--text-muted); font-size: 13px; margin-bottom: 12px;">
+                                    Одно правило рубит совпадения <strong>на всех хостах сразу</strong>. Например, <code>backup fail</code> исключит бэкап-триггеры у всех серверов — не нужно выключать по каждому.
+                                </p>
+
+                                <div id="sla-rules-admin-controls">
+                                    <div class="form-group" style="display: flex; gap: 10px; margin-bottom: 0;">
+                                        <input type="text" id="new-rule-input" placeholder="Подстрока правила (например: backup fail)">
+                                        <button type="button" class="save-settings-btn" id="add-rule-btn" style="white-space: nowrap; margin-top: 0; width: auto; padding: 10px 20px;">
+                                            <i class="fa-solid fa-plus"></i> Добавить правило
+                                        </button>
+                                    </div>
+                                    <div id="rule-preview" style="display: none; margin-top: 10px; font-size: 13px; padding: 10px 14px; border-radius: 8px; background: rgba(245, 158, 11, 0.08); border: 1px solid rgba(245, 158, 11, 0.25);"></div>
+                                </div>
+
+                                <div id="sla-rules-list" style="margin-top: 15px;">
+                                    <!-- Заполняется динамически -->
+                                </div>
                             </div>
-                            
-                            <div class="form-group" style="margin-top: 15px;">
-                                <label for="patterns-search">Поиск по правилам</label>
+
+                            <hr style="border: none; border-top: 1px solid var(--border-color); margin: 20px 0;">
+
+                            <!-- Обнаруженные имена триггеров (витрина, per-name галочки) -->
+                            <h4 style="margin: 0 0 6px; font-size: 15px; color: var(--text-primary);">
+                                <i class="fa-solid fa-magnifying-glass" style="color: var(--text-muted);"></i> Обнаруженные имена триггеров
+                            </h4>
+                            <p style="color: var(--text-muted); font-size: 13px; margin-bottom: 12px;">
+                                Все имена инцидентов, прилетевшие из Zabbix. Снимите галочку «Учитывать», чтобы исключить конкретное имя. Имена, уже покрытые правилом выше, свёрнуты.
+                            </p>
+
+                            <div class="form-group" style="margin-top: 0;">
+                                <label for="patterns-search">Поиск по именам</label>
                                 <input type="text" id="patterns-search" placeholder="Поиск по имени триггера...">
                             </div>
-                            
+
+                            <div id="patterns-covered-toggle" style="display: none; margin-bottom: 10px;">
+                                <button type="button" class="test-btn" id="patterns-covered-btn" style="width: auto; padding: 6px 14px; font-size: 13px;"></button>
+                            </div>
+
                             <div class="patterns-table-container">
                                 <table class="incidents-table" id="patterns-table">
                                     <thead>
                                         <tr>
                                             <th style="width: 50px; text-align: center;">Учитывать</th>
-                                            <th>Паттерн / Имя триггера Zabbix</th>
+                                            <th>Имя триггера Zabbix</th>
                                             <th style="width: 80px; text-align: center;">Действие</th>
                                         </tr>
                                     </thead>

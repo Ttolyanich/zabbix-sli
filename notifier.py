@@ -56,7 +56,9 @@ def build_report_summary(start_time, end_time):
                 'comment': srv['comment'] or ''
             })
             for inc in srv['incidents']:
-                if inc['is_maintenance']:
+                if inc.get('is_ignored_by_pattern'):
+                    excluded = 'исключено правилом'
+                elif inc['is_maintenance']:
                     excluded = 'обслуживание'
                 elif inc.get('is_power_issue'):
                     excluded = 'электропитание'

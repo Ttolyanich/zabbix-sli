@@ -55,12 +55,27 @@ def get_working_seconds_in_interval(t1, t2, working_days, start_str, end_str):
         
     return total_seconds
 
+def merge_time_intervals(intervals):
+    """Объединяет пересекающиеся или примыкающие временные интервалы [(start, end), ...]."""
+    if not intervals:
+        return []
+    sorted_intervals = sorted(intervals, key=lambda x: x[0])
+    merged = [list(sorted_intervals[0])]
+    for current in sorted_intervals[1:]:
+        prev = merged[-1]
+        if current[0] <= prev[1]:
+            prev[1] = max(prev[1], current[1])
+        else:
+            merged.append(list(current))
+    return merged
+
 def calculate_sli_report(start_time, end_time):
     """
     Рассчитывает метрики доступности и времени реакции по всем клиентам и их серверам.
     """
     settings = database.get_settings()
     mappings = database.get_mappings()
+    server_downtime_intervals = {}
     
     # Чтение настроек рабочих часов
     working_hours_enabled = settings.get('working_hours_enabled') == '1'
@@ -187,12 +202,13 @@ def calculate_sli_report(start_time, end_time):
                     inc_downtime = get_working_seconds_in_interval(inc_start, inc_end, working_days, start_str, end_str)
                 else:
                     inc_downtime = inc_end - inc_start
+                # Добавляем интервал для последующего объединения (устранение наложения одновременных сбоев)
+                server_downtime_intervals.setdefault(h_id, []).append((inc_start, inc_end))
             else:
                 inc_downtime = 0
                 
         # Добавляем в инциденты сервера
         srv_data = results[c_name]['servers'][h_id]
-        srv_data['downtime_sec'] += inc_downtime
         srv_data['incidents_count'] += 1
         
         # Добавляем MTTR / MTTD для инцидента
@@ -227,6 +243,17 @@ def calculate_sli_report(start_time, end_time):
         # Фильтруем сервера: исключаем неактивные без инцидентов в текущем периоде
         filtered_servers = {}
         for h_id, srv_data in client_data['servers'].items():
+            # Рассчитываем суммарный простой сервера с объединением пересекающихся интервалов
+            raw_intervals = server_downtime_intervals.get(h_id, [])
+            merged_intervals = merge_time_intervals(raw_intervals)
+            srv_downtime_total = 0
+            for m_start, m_end in merged_intervals:
+                if working_hours_enabled:
+                    srv_downtime_total += get_working_seconds_in_interval(m_start, m_end, working_days, start_str, end_str)
+                else:
+                    srv_downtime_total += (m_end - m_start)
+            srv_data['downtime_sec'] = srv_downtime_total
+
             is_active = host_details[h_id]['is_active']
             if is_active == 1 or srv_data['downtime_sec'] > 0 or srv_data['incidents_count'] > 0:
                 filtered_servers[h_id] = srv_data

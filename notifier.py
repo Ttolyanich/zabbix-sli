@@ -354,11 +354,15 @@ def send_email_report(recipient, subject, start_time, end_time):
     </html>
     """
 
+    clean_recipient = recipient.replace('\r', '').replace('\n', '').strip()
+    clean_from = smtp_from.replace('\r', '').replace('\n', '').strip()
+    clean_subject = subject.replace('\r', '').replace('\n', '').strip()
+
     # Создание письма
     msg = MIMEMultipart()
-    msg['From'] = smtp_from
-    msg['To'] = recipient
-    msg['Subject'] = subject
+    msg['From'] = clean_from
+    msg['To'] = clean_recipient
+    msg['Subject'] = clean_subject
 
     msg.attach(MIMEText(html_body, 'html'))
 
@@ -373,12 +377,15 @@ def send_email_report(recipient, subject, start_time, end_time):
     msg.attach(attachment)
 
     # Отправка
-    server = smtplib.SMTP(smtp_host, smtp_port)
-    if use_tls:
-        server.starttls()
+    if smtp_port == 465:
+        server = smtplib.SMTP_SSL(smtp_host, smtp_port, timeout=15)
+    else:
+        server = smtplib.SMTP(smtp_host, smtp_port, timeout=15)
+        if use_tls:
+            server.starttls()
     if smtp_user and smtp_password:
         server.login(smtp_user, smtp_password)
-    server.sendmail(smtp_from, recipient, msg.as_string())
+    server.sendmail(clean_from, clean_recipient, msg.as_string())
     server.quit()
 
 def send_telegram_alert(text):

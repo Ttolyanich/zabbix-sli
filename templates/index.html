@@ -16,8 +16,10 @@
     <link rel="icon" type="image/svg+xml" href="/static/img/favicon.svg">
     <script>
         window.currentUser = {
-            username: "{{ session.username }}",
-            role: "{{ session.role }}",
+            username: {{ session.get('username')|tojson }},
+            displayName: {{ (session.get('display_name') or session.get('username'))|tojson }},
+            role: {{ session.get('role')|tojson }},
+            authSource: {{ session.get('auth_source', 'local')|tojson }},
             isDefaultAdmin: {% if session.is_default_admin %}true{% else %}false{% endif %}
         };
     </script>
@@ -75,7 +77,10 @@
                     <button id="theme-toggle-btn" class="theme-toggle" title="Переключить тему оформления" style="background: none; border: none; color: var(--text-secondary); font-size: 16px; cursor: pointer; padding: 8px; border-radius: 50%; display: flex; align-items: center; justify-content: center; transition: all var(--transition-speed); margin-right: 10px;">
                         <i class="fa-solid fa-moon"></i>
                     </button>
-                    <span id="user-display-name"><i class="fa-solid fa-user-shield"></i> {{ session.username }} ({% if session.role == 'admin' %}Админ{% else %}Пользователь{% endif %})</span>
+                    <span id="user-display-name">
+                        <i class="fa-solid fa-user-shield"></i> {{ session.display_name or session.username }}
+                        <span style="font-size: 11px; opacity: 0.8; margin-left: 4px;">({% if session.role == 'admin' %}Админ{% else %}Пользователь{% endif %}{% if session.auth_source == 'ldap' %} &middot; AD{% endif %})</span>
+                    </span>
                     <a href="/logout" class="logout-link" title="Выйти из системы"><i class="fa-solid fa-right-from-bracket"></i> Выйти</a>
                 </div>
                 

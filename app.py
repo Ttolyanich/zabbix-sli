@@ -3,7 +3,7 @@ import os
 import time
 import secrets
 import datetime
-from collections import defaultdict, deque
+import re
 from dotenv import load_dotenv
 from functools import wraps
 
@@ -12,6 +12,7 @@ import zabbix_api
 import analytics
 import scheduler
 import notifier
+import auth_ldap
 
 # Загрузка переменных окружения
 load_dotenv()
@@ -44,20 +45,17 @@ app.config.update(
     SESSION_COOKIE_SAMESITE='Lax',
 )
 
-# Простой in-memory ограничитель попыток входа (защита от перебора паролей)
-_login_attempts = defaultdict(deque)
-LOGIN_MAX_ATTEMPTS = 10
-LOGIN_WINDOW_SECONDS = 300
+# Ограничитель попыток входа с сохранением в БД и поддержкой X-Forwarded-For (Reverse Proxy)
+def _get_client_ip():
+    forwarded = request.headers.get('X-Forwarded-For')
+    if forwarded:
+        return forwarded.split(',')[0].strip()
+    return request.remote_addr or '127.0.0.1'
 
-def login_rate_limited(key):
-    now = time.time()
-    attempts = _login_attempts[key]
-    while attempts and attempts[0] < now - LOGIN_WINDOW_SECONDS:
-        attempts.popleft()
-    return len(attempts) >= LOGIN_MAX_ATTEMPTS
-
-def register_failed_login(key):
-    _login_attempts[key].append(time.time())
+def _get_rate_key(username=''):
+    ip = _get_client_ip()
+    u = (username or '').strip().lower()
+    return f"{ip}:{u}" if u else ip
 
 # Middleware-декораторы для проверки прав доступа
 def login_required(f):
@@ -103,6 +101,23 @@ def admin_required(f):
 database.init_db()
 scheduler.init_scheduler()
 
+@app.context_processor
+def inject_template_globals():
+    ldap_config = auth_ldap.get_ldap_config()
+    current_user = None
+    if 'user_id' in session:
+        current_user = {
+            'id': session.get('user_id'),
+            'username': session.get('username'),
+            'display_name': session.get('display_name') or session.get('username'),
+            'role': session.get('role'),
+            'auth_source': session.get('auth_source', 'local')
+        }
+    return {
+        'current_user': current_user,
+        'ldap_enabled': ldap_config['enabled']
+    }
+
 @app.route('/')
 @login_required
 def index():
@@ -112,48 +127,92 @@ def index():
 def login():
     if 'user_id' in session:
         return redirect(url_for('index'))
-        
+
+    ldap_config = auth_ldap.get_ldap_config()
+    ldap_enabled = ldap_config['enabled']
+
     if request.method == 'POST':
         if request.is_json:
-            data = request.json
-            username = data.get('username')
-            password = data.get('password')
+            data = request.json or {}
+            username = data.get('username', '')
+            password = data.get('password', '')
         else:
-            username = request.form.get('username')
-            password = request.form.get('password')
+            username = request.form.get('username', '')
+            password = request.form.get('password', '')
 
-        if login_rate_limited(request.remote_addr):
-            msg = "Слишком много неудачных попыток входа. Попробуйте позже."
+        username = (username or '').strip()
+        rate_key = _get_rate_key(username)
+
+        if database.check_login_rate_limit(rate_key):
+            msg = "Слишком много неудачных попыток входа. Попробуйте через 5 минут."
             if request.is_json:
                 return jsonify({"status": "error", "message": msg}), 429
-            return render_template('login.html', error=msg)
+            return render_template('login.html', error=msg, ldap_enabled=ldap_enabled)
 
+        # 1. Сначала проверяем локального пользователя (например, локальный admin)
         user = database.authenticate_user(username, password)
         if user:
+            database.clear_failed_logins(rate_key)
             session['user_id'] = user['id']
             session['username'] = user['username']
+            session['display_name'] = user.get('display_name') or user['username']
             session['role'] = user['role']
-            
+            session['auth_source'] = 'local'
+
             is_default_admin = (user['username'] == 'admin' and password == 'admin')
             session['is_default_admin'] = is_default_admin
-            
+
             if request.is_json:
                 return jsonify({
-                    "status": "success", 
+                    "status": "success",
                     "user": {
-                        "username": user['username'], 
+                        "username": user['username'],
+                        "display_name": session['display_name'],
                         "role": user['role'],
+                        "auth_source": "local",
                         "is_default_admin": is_default_admin
                     }
                 })
             return redirect(url_for('index'))
 
-        register_failed_login(request.remote_addr)
+        # 2. Если включена авторизация через Active Directory / LDAP — проверяем в домене
+        if ldap_enabled:
+            ldap_ok, resolved_username, ad_role, display_name, ldap_err = auth_ldap.authenticate_ldap(username, password)
+            if ldap_ok:
+                database.clear_failed_logins(rate_key)
+                db_user = database.get_or_create_ldap_user(resolved_username, display_name, ad_role)
+                session['user_id'] = db_user['id']
+                session['username'] = db_user['username']
+                session['display_name'] = db_user.get('display_name') or db_user['username']
+                session['role'] = db_user['role']
+                session['auth_source'] = 'ldap'
+                session['is_default_admin'] = False
+
+                if request.is_json:
+                    return jsonify({
+                        "status": "success",
+                        "user": {
+                            "username": db_user['username'],
+                            "display_name": session['display_name'],
+                            "role": db_user['role'],
+                            "auth_source": "ldap",
+                            "is_default_admin": False
+                        }
+                    })
+                return redirect(url_for('index'))
+            else:
+                database.record_failed_login(rate_key)
+                err_msg = ldap_err or "Неверный логин или пароль Active Directory"
+                if request.is_json:
+                    return jsonify({"status": "error", "message": err_msg}), 400
+                return render_template('login.html', error=err_msg, ldap_enabled=ldap_enabled)
+
+        database.record_failed_login(rate_key)
         if request.is_json:
             return jsonify({"status": "error", "message": "Неверный логин или пароль"}), 400
-        return render_template('login.html', error="Неверный логин или пароль")
-        
-    return render_template('login.html')
+        return render_template('login.html', error="Неверный логин или пароль", ldap_enabled=ldap_enabled)
+
+    return render_template('login.html', ldap_enabled=ldap_enabled)
 
 @app.route('/logout')
 def logout():
@@ -163,29 +222,44 @@ def logout():
 @app.route('/api/settings', methods=['GET', 'POST'])
 @login_required
 def handle_settings():
+    is_admin = session.get('role') == 'admin'
+
     if request.method == 'GET':
         settings = database.get_settings()
-        # Удаляем пароли из выгрузки в целях безопасности (или маскируем)
+        if not is_admin:
+            # Для не-администраторов отдаем только безопасные параметры отображения (без паролей и токенов)
+            safe_keys = [
+                'vpn_issue_threshold_sec', 'working_hours_enabled',
+                'working_hours_start', 'working_hours_end', 'working_days',
+                'exclude_vpn_issues', 'mapping_mode'
+            ]
+            return jsonify({k: settings.get(k, '') for k in safe_keys})
+
+        # Администраторам отдаем настройки с маскированием секретов
         masked_settings = dict(settings)
         if masked_settings.get('smtp_password'):
             masked_settings['smtp_password'] = '********'
         if masked_settings.get('zabbix_password'):
             masked_settings['zabbix_password'] = '********'
+        if masked_settings.get('telegram_bot_token'):
+            masked_settings['telegram_bot_token'] = '********'
         return jsonify(masked_settings)
-        
+
     elif request.method == 'POST':
-        data = request.json
-        # Считываем текущие настройки, чтобы не стереть пароли, если их прислали в виде '********'
+        if not is_admin:
+            return jsonify({"status": "error", "message": "Доступ запрещен (требуются права администратора)"}), 403
+
+        data = request.json or {}
+        # Считываем текущие настройки, чтобы не стереть пароли/токены, если их прислали в виде '********'
         current_settings = database.get_settings()
         new_settings = {}
-        
+
         for k, v in data.items():
-            if k in ['smtp_password', 'zabbix_password'] and v == '********':
-                # Оставляем старое значение
+            if k in ['smtp_password', 'zabbix_password', 'telegram_bot_token'] and v == '********':
                 new_settings[k] = current_settings.get(k, '')
             else:
                 new_settings[k] = v
-                
+
         database.save_settings(new_settings)
         return jsonify({"status": "success", "message": "Настройки успешно сохранены"})
 
@@ -195,26 +269,29 @@ def handle_mappings():
     if request.method == 'GET':
         mappings = database.get_mappings(only_active=True)
         return jsonify(mappings)
-        
+
     elif request.method == 'POST':
-        data = request.json
+        if session.get('role') != 'admin':
+            return jsonify({"status": "error", "message": "Доступ запрещен (требуются права администратора)"}), 403
+
+        data = request.json or {}
         zabbix_hostid = data.get('zabbix_hostid')
         host_name = data.get('host_name')
         client_name = data.get('client_name')
         comment = data.get('comment', '')
-        
+
         if not zabbix_hostid or not host_name or not client_name:
             return jsonify({"status": "error", "message": "Не все обязательные поля заполнены"}), 400
-            
+
         database.save_mapping(zabbix_hostid, host_name, client_name, comment, is_manual=1)
-        
+
         # Запускаем фоновую синхронизацию Zabbix, чтобы подтянуть данные по новому хосту
         scheduler._scheduler.add_job(scheduler.sync_zabbix_data, 'date', run_date=datetime.datetime.now())
-        
+
         return jsonify({"status": "success", "message": "Сопоставление успешно сохранено"})
 
 @app.route('/api/mappings/<hostid>', methods=['DELETE'])
-@login_required
+@admin_required
 def delete_mapping(hostid):
     database.delete_mapping(hostid)
     # Запускаем синхронизацию для восстановления автоопределения клиента
@@ -365,7 +442,7 @@ def tv_data():
     })
 
 @app.route('/api/sync', methods=['POST'])
-@login_required
+@admin_required
 def manual_sync():
     try:
         result = scheduler.sync_zabbix_data()
@@ -384,73 +461,73 @@ def get_sync_status():
     return jsonify(database.get_sync_status())
 
 @app.route('/api/send-email', methods=['POST'])
-@login_required
+@admin_required
 def send_email_report():
     data = request.json or {}
-    recipient = data.get('recipient')
+    recipient = (data.get('recipient') or '').strip()
     start_ts = data.get('start_time')
     end_ts = data.get('end_time')
-    
+
+    if not recipient or not re.match(r'^[^@\s]+@[^@\s]+\.[^@\s]+$', recipient):
+        return jsonify({"status": "error", "message": "Укажите корректный адрес получателя email"}), 400
+
     if start_ts is not None:
         try:
             start_ts = int(start_ts)
         except (ValueError, TypeError):
             start_ts = None
-            
+
     if end_ts is not None:
         try:
             end_ts = int(end_ts)
         except (ValueError, TypeError):
             end_ts = None
-    
-    if not recipient:
-        return jsonify({"status": "error", "message": "Укажите адрес получателя"}), 400
-        
+
     now = datetime.datetime.now()
     first_day_of_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-    
+
     if not start_ts:
         start_ts = int(first_day_of_month.timestamp())
     if not end_ts:
         end_ts = int(time.time())
-        
+
     try:
         date_start_str = datetime.datetime.fromtimestamp(start_ts).strftime('%d.%m.%Y')
         date_end_str = datetime.datetime.fromtimestamp(end_ts).strftime('%d.%m.%Y')
         subject = f"Ручной отчет SLA/SLI за {date_start_str} - {date_end_str}"
-        
+
         notifier.send_email_report(recipient, subject, start_ts, end_ts)
         return jsonify({"status": "success", "message": f"Отчет отправлен на {recipient}"})
     except Exception as e:
         return jsonify({"status": "error", "message": f"Ошибка отправки почты: {str(e)}"}), 500
 
 @app.route('/api/send-telegram', methods=['POST'])
-@login_required
+@admin_required
 def send_telegram_report():
     data = request.json or {}
     start_ts = data.get('start_time')
     end_ts = data.get('end_time')
-    
+
     if start_ts is not None:
         try:
             start_ts = int(start_ts)
         except (ValueError, TypeError):
             start_ts = None
-            
+
     if end_ts is not None:
         try:
             end_ts = int(end_ts)
         except (ValueError, TypeError):
             end_ts = None
-    
+
     now = datetime.datetime.now()
     first_day_of_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-    
+
     if not start_ts:
         start_ts = int(first_day_of_month.timestamp())
     if not end_ts:
         end_ts = int(time.time())
-        
+
     try:
         success = notifier.send_telegram_report(start_ts, end_ts)
         if success:
@@ -522,15 +599,15 @@ def api_get_incident_patterns():
         return jsonify({"status": "error", "message": f"Ошибка получения правил: {str(e)}"}), 500
 
 @app.route('/api/incidents/patterns', methods=['POST'])
-@login_required
+@admin_required
 def api_update_incident_pattern():
-    data = request.json
-    pattern = data.get('pattern', '').strip()
+    data = request.json or {}
+    pattern = (data.get('pattern') or '').strip()
     is_incident = data.get('is_incident', 1)
-    
+
     if not pattern:
         return jsonify({"status": "error", "message": "Паттерн не может быть пустым"}), 400
-        
+
     try:
         database.save_incident_pattern(pattern, is_incident)
         return jsonify({"status": "success", "message": "Правило фильтрации успешно сохранено"})
@@ -538,14 +615,14 @@ def api_update_incident_pattern():
         return jsonify({"status": "error", "message": f"Ошибка сохранения правила: {str(e)}"}), 500
 
 @app.route('/api/incidents/patterns/delete', methods=['POST'])
-@login_required
+@admin_required
 def api_delete_incident_pattern():
-    data = request.json
-    pattern = data.get('pattern', '').strip()
-    
+    data = request.json or {}
+    pattern = (data.get('pattern') or '').strip()
+
     if not pattern:
         return jsonify({"status": "error", "message": "Паттерн не может быть пустым"}), 400
-        
+
     try:
         database.delete_incident_pattern(pattern)
         return jsonify({"status": "success", "message": "Правило фильтрации успешно удалено"})
@@ -823,6 +900,9 @@ def manage_users():
 @app.route('/api/users/<int:user_id>', methods=['DELETE'])
 @admin_required
 def delete_user(user_id):
+    if user_id == session.get('user_id'):
+        return jsonify({"status": "error", "message": "Нельзя удалить собственную учетную запись"}), 400
+
     success, msg = database.delete_user(user_id)
     if success:
         return jsonify({"status": "success", "message": msg})

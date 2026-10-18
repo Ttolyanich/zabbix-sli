@@ -49,7 +49,17 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 });
 
-// === Вспомогательные функции форматирования ===
+// === Вспомогательные функции форматирования и безопасности ===
+function escapeHtml(str) {
+    if (str === null || str === undefined) return '';
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+}
+
 function formatDuration(seconds) {
     if (seconds === null || seconds === undefined) return '-';
     const hrs = Math.floor(seconds / 3600);
@@ -539,9 +549,9 @@ function renderAnalyticsIncidentsTable(incidents) {
 
     const rows = incidents.map(inc => `
         <tr>
-            <td>${inc.name}</td>
-            <td><span class="client-tag">${inc.client}</span></td>
-            <td>${inc.server}</td>
+            <td>${escapeHtml(inc.name)}</td>
+            <td><span class="client-tag">${escapeHtml(inc.client)}</span></td>
+            <td>${escapeHtml(inc.server)}</td>
             <td>${formatDateTime(inc.clock)}</td>
             <td>${inc.r_clock ? formatDateTime(inc.r_clock) : '<span class="status-badge server-issue">Активен</span>'}</td>
             <td style="text-align: right;">${formatDuration(inc.downtime_sec)}</td>
@@ -1032,8 +1042,8 @@ function renderClientServers(client, container) {
                 <div class="col-expand"><i class="fa-solid fa-chevron-right"></i></div>
                 <div class="col-name">
                     <div class="server-name-container">
-                        <span>${srv.name}</span>
-                        <span class="server-comment">${srv.comment || 'Без комментария'}</span>
+                        <span>${escapeHtml(srv.name)}</span>
+                        <span class="server-comment">${escapeHtml(srv.comment || 'Без комментария')}</span>
                     </div>
                 </div>
                 <div class="col-sla"><span class="sla-badge ${srvSlaClass}">${srv.sla_percent.toFixed(3)}%</span></div>
@@ -1159,12 +1169,12 @@ function renderServerIncidents(srv, tbody) {
         const commentCellHtml = `
             <div class="comment-cell">
                 ${inc.comment_text ? `
-                    <div class="comment-bubble" title="Комментарий добавил: ${inc.comment_user} (${inc.comment_date})">
-                        ${inc.comment_text}
-                        <span class="comment-author-info">${inc.comment_user}, ${commentDateStr}</span>
+                    <div class="comment-bubble" title="Комментарий добавил: ${escapeHtml(inc.comment_user)} (${escapeHtml(inc.comment_date)})">
+                        ${escapeHtml(inc.comment_text)}
+                        <span class="comment-author-info">${escapeHtml(inc.comment_user)}, ${commentDateStr}</span>
                     </div>
                 ` : '<span style="color: var(--text-muted); font-style: italic; font-size: 11px;">Нет</span>'}
-                <button class="edit-comment-btn" data-eventid="${inc.eventid}" data-name="${inc.name}" data-time="${inc.clock}" title="Добавить/Редактировать комментарий">
+                <button class="edit-comment-btn" data-eventid="${inc.eventid}" data-name="${escapeHtml(inc.name)}" data-time="${inc.clock}" title="Добавить/Редактировать комментарий">
                      <i class="fa-solid fa-comment-medical"></i>
                 </button>
             </div>
@@ -1176,8 +1186,8 @@ function renderServerIncidents(srv, tbody) {
                 <input type="checkbox" class="incident-select-checkbox" data-eventid="${inc.eventid}">
             </td>
             <td>
-                <b>${inc.name}</b>
-                ${inc.is_ignored_by_pattern ? `<span class="ignored-label-badge" title="Исключён из SLA${inc.sla_exclusion_pattern ? ` по правилу «${inc.sla_exclusion_pattern}»` : ' по правилу фильтрации'}"><i class="fa-solid fa-filter"></i> Исключён</span>` : ''}
+                <b>${escapeHtml(inc.name)}</b>
+                ${inc.is_ignored_by_pattern ? `<span class="ignored-label-badge" title="Исключён из SLA${inc.sla_exclusion_pattern ? ` по правилу «${escapeHtml(inc.sla_exclusion_pattern)}»` : ' по правилу фильтрации'}"><i class="fa-solid fa-filter"></i> Исключён</span>` : ''}
             </td>
             <td>
                 <span class="severity-indicator">
@@ -2003,7 +2013,7 @@ async function loadUsersList() {
             const isSelf = user.username === window.currentUser.username;
             const deleteBtnHtml = isSelf
                 ? '<span style="color: var(--text-muted); font-size: 12px; font-style: italic;">Это вы</span>'
-                : `<button class="delete-user-btn" data-userid="${user.id}" data-username="${user.username}" title="Удалить пользователя">
+                : `<button class="delete-user-btn" data-userid="${user.id}" data-username="${escapeHtml(user.username)}" title="Удалить пользователя">
                        <i class="fa-solid fa-trash-can"></i> Удалить
                    </button>`;
 
@@ -2013,7 +2023,7 @@ async function loadUsersList() {
             ];
             const roleHtml = isSelf
                 ? `<span class="user-role-badge ${roleClass}">${roleName}</span>`
-                : `<div class="custom-select-container role-picker ${roleClass}" data-userid="${user.id}" data-username="${user.username}" data-value="${user.role}">
+                : `<div class="custom-select-container role-picker ${roleClass}" data-userid="${user.id}" data-username="${escapeHtml(user.username)}" data-value="${user.role}">
                        <div class="custom-select-trigger">
                            <span class="custom-select-value">${roleName}</span>
                            <i class="fa-solid fa-chevron-down"></i>
@@ -2023,9 +2033,20 @@ async function loadUsersList() {
                        </div>
                    </div>`;
 
+            const authBadge = user.auth_source === 'ldap'
+                ? '<span style="display: inline-flex; align-items: center; gap: 4px; padding: 2px 7px; border-radius: 6px; font-size: 11px; font-weight: 600; background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); margin-left: 6px;"><i class="fa-solid fa-network-wired"></i> AD</span>'
+                : '<span style="display: inline-flex; align-items: center; gap: 4px; padding: 2px 7px; border-radius: 6px; font-size: 11px; font-weight: 500; background: rgba(156, 163, 175, 0.12); color: var(--text-secondary); margin-left: 6px;">Локальный</span>';
+
+            const displayNameHtml = user.display_name && user.display_name !== user.username
+                ? `<div style="font-size: 12px; color: var(--text-secondary); margin-top: 2px;">${escapeHtml(user.display_name)}</div>`
+                : '';
+
             tr.innerHTML = `
                 <td>${user.id}</td>
-                <td><b>${user.username}</b></td>
+                <td>
+                    <b>${escapeHtml(user.username)}</b>${authBadge}
+                    ${displayNameHtml}
+                </td>
                 <td>${roleHtml}</td>
                 <td style="text-align: right;">${deleteBtnHtml}</td>
             `;

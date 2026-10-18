@@ -165,7 +165,7 @@ def sync_zabbix_data():
                 print(f"[Scheduler] Warning: failed to fetch maintenance status for chunk: {str(e)}")
         
         for inc in incidents:
-            if inc['hostid'] in maintenance_hosts and not inc['r_clock']:
+            if not inc.get('is_maintenance') and inc['hostid'] in maintenance_hosts and not inc['r_clock']:
                 inc['is_maintenance'] = 1
                 
         database.cache_incidents(incidents)
@@ -209,14 +209,16 @@ def send_periodic_reports(period_name, start_time, end_time):
     settings = database.get_settings()
     
     # 1. Отправка на почту
-    smtp_to = settings.get('smtp_user') # Отправляем администратору или по указанному списку
-    if smtp_to and settings.get('smtp_host'):
-        try:
-            subject = f"Мониторинг SLA: {period_name} отчет по клиентам"
-            notifier.send_email_report(smtp_to, subject, start_time, end_time)
-            print(f"[Scheduler] Sent email report to {smtp_to}")
-        except Exception as e:
-            print(f"[Scheduler] Failed to send email report: {str(e)}")
+    recipients_str = settings.get('report_recipients') or settings.get('smtp_user') or ''
+    recipients = [r.strip() for r in recipients_str.split(',') if r.strip()]
+    if recipients and settings.get('smtp_host'):
+        subject = f"Мониторинг SLA: {period_name} отчет по клиентам"
+        for recipient in recipients:
+            try:
+                notifier.send_email_report(recipient, subject, start_time, end_time)
+                print(f"[Scheduler] Sent email report to {recipient}")
+            except Exception as e:
+                print(f"[Scheduler] Failed to send email report to {recipient}: {str(e)}")
             
     # 2. Отправка в Telegram
     if settings.get('telegram_enabled') == '1':

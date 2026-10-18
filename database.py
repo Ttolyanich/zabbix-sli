@@ -73,15 +73,38 @@ def init_db():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             username TEXT UNIQUE NOT NULL,
             password_hash TEXT NOT NULL,
-            role TEXT NOT NULL DEFAULT 'user'
+            role TEXT NOT NULL DEFAULT 'user',
+            auth_source TEXT DEFAULT 'local',
+            display_name TEXT
         )
     ''')
+
+    # Проверяем, существуют ли колонки в таблице users в существующей БД
+    cursor.execute("PRAGMA table_info(users)")
+    user_columns = [col[1] for col in cursor.fetchall()]
+    if 'auth_source' not in user_columns:
+        cursor.execute("ALTER TABLE users ADD COLUMN auth_source TEXT DEFAULT 'local'")
+    if 'display_name' not in user_columns:
+        cursor.execute("ALTER TABLE users ADD COLUMN display_name TEXT")
+
+    # Таблица ограничения попыток входа (Rate Limiting)
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS login_rate_limits (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            rate_key TEXT NOT NULL,
+            attempt_time REAL NOT NULL
+        )
+    ''')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_rate_limits_key_time ON login_rate_limits(rate_key, attempt_time)')
     
     # Создаем администратора по умолчанию (admin / admin), если пользователей нет
     cursor.execute('SELECT COUNT(*) FROM users')
     if cursor.fetchone()[0] == 0:
         admin_hash = generate_password_hash('admin')
-        cursor.execute('INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)', ('admin', admin_hash, 'admin'))
+        cursor.execute(
+            'INSERT INTO users (username, password_hash, role, auth_source, display_name) VALUES (?, ?, ?, ?, ?)',
+            ('admin', admin_hash, 'admin', 'local', 'Администратор')
+        )
         
     # Таблица комментариев к инцидентам
     cursor.execute('''
@@ -249,15 +272,14 @@ def delete_mapping(zabbix_hostid):
 
 def delete_host_data(zabbix_hostid):
     conn = get_db_connection()
-    event_ids = [r['eventid'] for r in conn.execute('SELECT eventid FROM incidents WHERE hostid = ?', (zabbix_hostid,)).fetchall()]
-    if event_ids:
-        placeholders = ','.join('?' for _ in event_ids)
-        conn.execute(f'DELETE FROM incident_comments WHERE eventid IN ({placeholders})', event_ids)
-        conn.execute(f'DELETE FROM incident_category_overrides WHERE eventid IN ({placeholders})', event_ids)
-    conn.execute('DELETE FROM server_mappings WHERE zabbix_hostid = ?', (zabbix_hostid,))
-    conn.execute('DELETE FROM incidents WHERE hostid = ?', (zabbix_hostid,))
-    conn.commit()
-    conn.close()
+    try:
+        conn.execute('DELETE FROM incident_comments WHERE eventid IN (SELECT eventid FROM incidents WHERE hostid = ?)', (zabbix_hostid,))
+        conn.execute('DELETE FROM incident_category_overrides WHERE eventid IN (SELECT eventid FROM incidents WHERE hostid = ?)', (zabbix_hostid,))
+        conn.execute('DELETE FROM server_mappings WHERE zabbix_hostid = ?', (zabbix_hostid,))
+        conn.execute('DELETE FROM incidents WHERE hostid = ?', (zabbix_hostid,))
+        conn.commit()
+    finally:
+        conn.close()
 
 def cache_incidents(incidents_list):
     conn = get_db_connection()
@@ -350,14 +372,11 @@ def get_incidents(start_time, end_time, hostids=None):
 
 def auto_discover_patterns():
     conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute('SELECT DISTINCT name FROM incidents')
-    names = [row['name'] for row in cursor.fetchall()]
-    
-    for name in names:
-        cursor.execute('INSERT OR IGNORE INTO incident_patterns (pattern, is_incident) VALUES (?, 1)', (name,))
-    conn.commit()
-    conn.close()
+    try:
+        conn.execute('INSERT OR IGNORE INTO incident_patterns (pattern, is_incident) SELECT DISTINCT name, 1 FROM incidents')
+        conn.commit()
+    finally:
+        conn.close()
 
 def get_incident_patterns():
     auto_discover_patterns()
@@ -423,13 +442,48 @@ def bulk_save_incident_overrides(eventids, category, comment, username):
     finally:
         conn.close()
 
-# === Функции авторизации и пользователей ===
+# === Функции ограничения попыток входа (Rate Limiting) ===
 
-def create_user(username, password, role='user'):
+def check_login_rate_limit(rate_key, max_attempts=10, window_seconds=300):
+    cutoff = time.time() - window_seconds
     conn = get_db_connection()
     try:
-        password_hash = generate_password_hash(password)
-        conn.execute('INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)', (username.strip(), password_hash, role))
+        conn.execute('DELETE FROM login_rate_limits WHERE attempt_time < ?', (cutoff,))
+        count = conn.execute(
+            'SELECT COUNT(*) FROM login_rate_limits WHERE rate_key = ? AND attempt_time >= ?',
+            (rate_key, cutoff)
+        ).fetchone()[0]
+        conn.commit()
+        return count >= max_attempts
+    finally:
+        conn.close()
+
+def record_failed_login(rate_key):
+    conn = get_db_connection()
+    try:
+        conn.execute('INSERT INTO login_rate_limits (rate_key, attempt_time) VALUES (?, ?)', (rate_key, time.time()))
+        conn.commit()
+    finally:
+        conn.close()
+
+def clear_failed_logins(rate_key):
+    conn = get_db_connection()
+    try:
+        conn.execute('DELETE FROM login_rate_limits WHERE rate_key = ?', (rate_key,))
+        conn.commit()
+    finally:
+        conn.close()
+
+# === Функции авторизации и пользователей ===
+
+def create_user(username, password, role='user', auth_source='local', display_name=None):
+    conn = get_db_connection()
+    try:
+        password_hash = generate_password_hash(password) if password else '!ldap_managed'
+        conn.execute(
+            'INSERT INTO users (username, password_hash, role, auth_source, display_name) VALUES (?, ?, ?, ?, ?)',
+            (username.strip().lower(), password_hash, role, auth_source, display_name or username.strip())
+        )
         conn.commit()
         return True
     except sqlite3.IntegrityError:
@@ -437,20 +491,68 @@ def create_user(username, password, role='user'):
     finally:
         conn.close()
 
+def get_or_create_ldap_user(username, display_name=None, role='user'):
+    conn = get_db_connection()
+    try:
+        clean_user = username.strip().lower()
+        row = conn.execute('SELECT id, username, role, auth_source, display_name FROM users WHERE lower(username) = ?', (clean_user,)).fetchone()
+        if row:
+            user_id = row['id']
+            conn.execute(
+                'UPDATE users SET auth_source = ?, display_name = COALESCE(?, display_name), role = ? WHERE id = ?',
+                ('ldap', display_name, role, user_id)
+            )
+            conn.commit()
+            return {
+                'id': user_id,
+                'username': clean_user,
+                'role': role,
+                'auth_source': 'ldap',
+                'display_name': display_name or row['display_name'] or clean_user
+            }
+        else:
+            cursor = conn.execute(
+                'INSERT INTO users (username, password_hash, role, auth_source, display_name) VALUES (?, ?, ?, ?, ?)',
+                (clean_user, '!ldap_managed', role, 'ldap', display_name or clean_user)
+            )
+            conn.commit()
+            return {
+                'id': cursor.lastrowid,
+                'username': clean_user,
+                'role': role,
+                'auth_source': 'ldap',
+                'display_name': display_name or clean_user
+            }
+    finally:
+        conn.close()
+
 def authenticate_user(username, password):
     conn = get_db_connection()
-    row = conn.execute('SELECT id, username, password_hash, role FROM users WHERE username = ?', (username.strip(),)).fetchone()
+    clean_user = username.strip().lower()
+    row = conn.execute(
+        'SELECT id, username, password_hash, role, auth_source, display_name FROM users WHERE lower(username) = ?',
+        (clean_user,)
+    ).fetchone()
     conn.close()
-    if row and check_password_hash(row['password_hash'], password):
+    if not row:
+        return None
+    # Доменные пользователи (LDAP) аутентифицируются через AD
+    if row['auth_source'] == 'ldap' or row['password_hash'] == '!ldap_managed':
+        return None
+    if check_password_hash(row['password_hash'], password):
         return dict(row)
     return None
 
 def change_password(user_id, old_password, new_password):
     conn = get_db_connection()
-    row = conn.execute('SELECT password_hash FROM users WHERE id = ?', (user_id,)).fetchone()
+    row = conn.execute('SELECT password_hash, auth_source FROM users WHERE id = ?', (user_id,)).fetchone()
     if not row:
         conn.close()
         return False, "Пользователь не найден"
+        
+    if row['auth_source'] == 'ldap':
+        conn.close()
+        return False, "Пароль доменной учетной записи изменяется в Active Directory / Windows"
         
     if not check_password_hash(row['password_hash'], old_password):
         conn.close()
@@ -464,15 +566,19 @@ def change_password(user_id, old_password, new_password):
 
 def change_password_by_admin(user_id, new_password):
     conn = get_db_connection()
+    row = conn.execute('SELECT auth_source FROM users WHERE id = ?', (user_id,)).fetchone()
+    if row and row['auth_source'] == 'ldap':
+        conn.close()
+        return False, "Нельзя изменить локальный пароль доменного пользователя (изменяется в Active Directory)"
     password_hash = generate_password_hash(new_password)
     conn.execute('UPDATE users SET password_hash = ? WHERE id = ?', (password_hash, user_id))
     conn.commit()
     conn.close()
-    return True
+    return True, "Пароль успешно изменен"
 
 def get_all_users():
     conn = get_db_connection()
-    rows = conn.execute('SELECT id, username, role FROM users ORDER BY username').fetchall()
+    rows = conn.execute('SELECT id, username, display_name, role, auth_source FROM users ORDER BY username').fetchall()
     conn.close()
     return [dict(row) for row in rows]
 

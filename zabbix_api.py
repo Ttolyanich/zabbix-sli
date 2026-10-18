@@ -30,12 +30,12 @@ class ZabbixAPI:
         
         try:
             # Используем verify=False для обхода ошибок самоподписанных сертификатов
-            response = requests.post(self.url, data=json.dumps(payload), headers=headers, timeout=10, verify=False)
+            response = requests.post(self.url, data=json.dumps(payload), headers=headers, timeout=45, verify=False)
             response.raise_for_status()
             res_json = response.json()
             
             if 'error' in res_json:
-                error_msg = res_json['error'].get('data', res_json['error'].get('message', 'Unknown error'))
+                error_msg = res_json['error'].get('data') or res_json['error'].get('message') or 'Unknown error'
                 raise Exception(f"Zabbix API Error: {error_msg}")
                 
             return res_json.get('result')
@@ -98,7 +98,8 @@ class ZabbixAPI:
         for i in range(0, len(hostids), 100):
             chunk_hostids = hostids[i:i+100]
             params = {
-                "output": ["eventid", "objectid", "name", "severity", "clock", "acknowledged", "r_eventid"],
+                "output": ["eventid", "objectid", "name", "severity", "clock", "acknowledged", "r_eventid", "suppressed"],
+                "select_suppression_data": "extend",
                 "selectHosts": ["hostid", "name"],
                 "select_acknowledges": ["clock"],
                 "hostids": chunk_hostids,
@@ -171,13 +172,10 @@ class ZabbixAPI:
                 if ack_clocks:
                     ack_time = min(ack_clocks)
                     
-            # Проверка флага обслуживания (maintenance)
-            # В Zabbix триггеры/события могут не содержать флага напрямую,
-            # но мы можем проверить, находится ли хост в обслуживании, или взять это из Zabbix,
-            # однако в Zabbix API событие имеет свойство `suppressed` (начиная с 4.0),
-            # указывающее, подавлено ли оно обслуживанием.
-            # По умолчанию ставим 0.
-            is_maintenance = 0
+            # Проверка флага обслуживания (maintenance / suppression)
+            suppressed_val = ev.get('suppressed')
+            suppr_data = ev.get('suppression_data', [])
+            is_maintenance = 1 if (suppressed_val in (1, '1') or bool(suppr_data)) else 0
             
             incidents.append({
                 'eventid': ev['eventid'],

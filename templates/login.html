@@ -217,10 +217,10 @@
 
         <form action="/login" method="POST">
             <div class="form-group">
-                <label for="username">Имя пользователя</label>
+                <label for="username">Имя пользователя / Email</label>
                 <div class="input-wrapper">
                     <i class="fa-solid fa-user"></i>
-                    <input type="text" id="username" name="username" class="form-control" placeholder="Имя пользователя" required autocomplete="username">
+                    <input type="text" id="username" name="username" class="form-control" placeholder="{% if ldap_enabled %}Логин, email или DOMAIN\логин{% else %}Имя пользователя{% endif %}" required autocomplete="username">
                 </div>
             </div>
 
@@ -233,6 +233,13 @@
             </div>
 
             <button type="submit" class="login-btn">Войти в систему</button>
+
+            {% if ldap_enabled %}
+            <div style="display: flex; align-items: center; justify-content: center; gap: 6px; font-size: 12px; color: var(--text-secondary); margin-top: 16px;">
+                <i class="fa-solid fa-network-wired" style="color: var(--accent);"></i>
+                <span>Доступен вход по доменной учетной записи Active Directory</span>
+            </div>
+            {% endif %}
         </form>
     </div>
 

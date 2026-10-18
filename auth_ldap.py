@@ -29,9 +29,71 @@ def get_ldap_config():
         'bind_password': os.environ.get('LDAP_BIND_PASSWORD') or os.environ.get('AD_BIND_PASSWORD') or '',
         'required_group': (os.environ.get('LDAP_REQUIRED_GROUP') or os.environ.get('AD_REQUIRED_GROUP') or '').strip(),
         'admin_group': (os.environ.get('LDAP_ADMIN_GROUP') or os.environ.get('AD_ADMIN_GROUP') or '').strip(),
-        'admin_users': [u.strip().lower() for u in (os.environ.get('LDAP_ADMIN_USERS') or os.environ.get('AD_ADMIN_USERS') or '').split(',') if u.strip()],
+        'admin_users': [u.strip().strip('"').strip("'").lower() for u in (os.environ.get('LDAP_ADMIN_USERS') or os.environ.get('AD_ADMIN_USERS') or '').split(',') if u.strip()],
         'nested_groups': _env_bool('LDAP_NESTED_GROUPS', 'AD_NESTED_GROUPS', True),
     }
+
+
+def build_admin_users_set(admin_users_list):
+    """
+    Нормализует список администраторов из конфигурации (LDAP_ADMIN_USERS).
+    Для записей вида 146@itsupport.kz или DOMAIN\\146 также добавляет короткий логин 146.
+    """
+    admin_set = set()
+    for u in admin_users_list:
+        clean = str(u).strip().strip('"').strip("'").lower()
+        if not clean:
+            continue
+        admin_set.add(clean)
+        if "@" in clean:
+            admin_set.add(clean.split("@")[0].strip())
+        if "\\" in clean:
+            admin_set.add(clean.split("\\")[-1].strip())
+        if "/" in clean:
+            admin_set.add(clean.split("/")[-1].strip())
+    return admin_set
+
+
+def normalize_username_candidates(identifier, user_entry=None, ldap_domain=None):
+    """
+    Формирует множество всех возможных представлений пользователя:
+    логин, почта, UPN, sAMAccountName, DOMAIN\\user и т.д.
+    """
+    candidates = set()
+    if identifier:
+        raw = str(identifier).strip().strip('"').strip("'").lower()
+        if raw:
+            candidates.add(raw)
+            if "@" in raw:
+                candidates.add(raw.split("@")[0].strip())
+            if "\\" in raw:
+                candidates.add(raw.split("\\")[-1].strip())
+            if "/" in raw:
+                candidates.add(raw.split("/")[-1].strip())
+            if ldap_domain and "@" not in raw and "\\" not in raw:
+                candidates.add(f"{raw}@{ldap_domain.lower()}")
+
+    if user_entry:
+        if hasattr(user_entry, 'sAMAccountName') and user_entry.sAMAccountName:
+            sam = str(user_entry.sAMAccountName).strip().lower()
+            if sam:
+                candidates.add(sam)
+                if ldap_domain and "@" not in sam:
+                    candidates.add(f"{sam}@{ldap_domain.lower()}")
+        if hasattr(user_entry, 'mail') and user_entry.mail:
+            mail = str(user_entry.mail).strip().lower()
+            if mail:
+                candidates.add(mail)
+                if "@" in mail:
+                    candidates.add(mail.split("@")[0].strip())
+        if hasattr(user_entry, 'userPrincipalName') and user_entry.userPrincipalName:
+            upn = str(user_entry.userPrincipalName).strip().lower()
+            if upn:
+                candidates.add(upn)
+                if "@" in upn:
+                    candidates.add(upn.split("@")[0].strip())
+
+    return {c for c in candidates if c}
 
 
 def _clean_ldap_host(server_str):
@@ -249,10 +311,13 @@ def authenticate_ldap(identifier, password):
             return False
 
         # Определение прав администратора
-        is_admin = False
-        if clean_user.lower() in admin_users or resolved_username.lower() in admin_users:
-            is_admin = True
-        elif admin_group and is_member_of_group(admin_group):
+        admin_users_set = build_admin_users_set(admin_users)
+        user_candidates = normalize_username_candidates(clean_id, user_entry=user_entry, ldap_domain=ldap_domain)
+        user_candidates.add(clean_user.lower())
+        user_candidates.add(resolved_username.lower())
+
+        is_admin = bool(user_candidates & admin_users_set)
+        if not is_admin and admin_group and is_member_of_group(admin_group):
             is_admin = True
 
         # Проверка обязательной группы доступа (если настроена)

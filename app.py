@@ -101,6 +101,20 @@ def admin_required(f):
 database.init_db()
 scheduler.init_scheduler()
 
+@app.before_request
+def sync_ldap_session():
+    # Если пользователь авторизован и пришел из LDAP — синхронизируем актуальную роль с LDAP_ADMIN_USERS
+    if 'user_id' in session and session.get('auth_source') == 'ldap':
+        ldap_config = auth_ldap.get_ldap_config()
+        if ldap_config['enabled']:
+            admin_users_set = auth_ldap.build_admin_users_set(ldap_config['admin_users'])
+            username = session.get('username', '')
+            candidates = auth_ldap.normalize_username_candidates(username, ldap_domain=ldap_config.get('domain'))
+            if candidates & admin_users_set:
+                if session.get('role') != 'admin':
+                    session['role'] = 'admin'
+                    database.change_user_role(session['user_id'], 'admin')
+
 @app.context_processor
 def inject_template_globals():
     ldap_config = auth_ldap.get_ldap_config()
